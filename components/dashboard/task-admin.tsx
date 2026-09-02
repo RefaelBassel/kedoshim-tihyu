@@ -10,6 +10,15 @@ import { useRouter } from "next/navigation";
 
 type Result = { ok: boolean; error?: string };
 
+function toTimeInput(unixSeconds: number): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Jerusalem",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(unixSeconds * 1000));
+}
+
 function toDateInput(unixSeconds: number): string {
   // The due date is stored as 23:59 Israel time; show the calendar day.
   return new Intl.DateTimeFormat("en-CA", {
@@ -35,12 +44,14 @@ export default function TaskAdminPanel({
   assignedCount: number;
   hasWork: boolean;
   unassigned: { id: number; fullName: string; klass: string | null }[];
-  updateDueDate: (taskId: number, dueDate: string) => Promise<Result>;
+  updateDueDate: (taskId: number, dueDate: string, dueTime: string) => Promise<Result>;
   assignStudent: (taskId: number, userId: number) => Promise<Result>;
   unpublishTask: (taskId: number) => Promise<Result>;
 }) {
   const router = useRouter();
   const [date, setDate] = useState(toDateInput(dueAt));
+  const [time, setTime] = useState(toTimeInput(dueAt));
+  const unchanged = date === toDateInput(dueAt) && time === toTimeInput(dueAt);
   const [msg, setMsg] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
@@ -80,13 +91,24 @@ export default function TaskAdminPanel({
             className="rounded-lg border border-[color:var(--border)] bg-white px-3 py-2 text-sm"
           />
         </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-semibold text-[color:var(--primary)]/70">
+            שעה
+          </span>
+          <input
+            type="time"
+            value={time}
+            onChange={(e) => setTime(e.target.value)}
+            className="rounded-lg border border-[color:var(--border)] bg-white px-3 py-2 text-sm"
+          />
+        </label>
         <button
           type="button"
-          disabled={pending || date === toDateInput(dueAt)}
-          onClick={() => run(() => updateDueDate(taskId, date), "תאריך ההגשה עודכן ✅")}
+          disabled={pending || unchanged}
+          onClick={() => run(() => updateDueDate(taskId, date, time), "מועד ההגשה עודכן ✅")}
           className="rounded-full bg-[color:var(--primary)] px-5 py-2 text-sm font-bold text-white shadow transition hover:scale-[1.02] disabled:opacity-40 disabled:hover:scale-100"
         >
-          עדכון התאריך
+          עדכון המועד
         </button>
 
         <div className="ms-auto flex items-center gap-2">

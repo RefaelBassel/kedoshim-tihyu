@@ -56,7 +56,47 @@ export function formatFullDate(unixSeconds: number): string {
     month: "numeric",
     year: "numeric",
   }).format(d);
-  return `יום ${day}, ${h.day} ב${h.month} ${h.year} · ${greg}`;
+  return `יום ${day}, ${h.day} ב${h.month} ${h.year} · ${greg} · ${formatHebTime(unixSeconds)}`;
+}
+
+// "23:59" — the clock time of a due date, Israel time.
+export function formatHebTime(unixSeconds: number): string {
+  return new Intl.DateTimeFormat("he-IL", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone: "Asia/Jerusalem",
+  }).format(new Date(unixSeconds * 1000));
+}
+
+// "כ״ד באב (17.8) · 23:59"
+export function formatHebDateTime(unixSeconds: number): string {
+  return `${formatHebDate(unixSeconds)} · ${formatHebTime(unixSeconds)}`;
+}
+
+// The teacher enters due dates as a calendar day + clock time in Israel;
+// convert to a unix timestamp honouring Israel's DST for THAT date (not a
+// hard-coded +03:00).
+export function israelLocalToUnix(date: string, time: string): number {
+  const [y, mo, d] = date.split("-").map(Number);
+  const [h, mi] = time.split(":").map(Number);
+  const asUtc = Date.UTC(y, mo - 1, d, h, mi, 0);
+  // offset of Asia/Jerusalem at (approximately) that instant
+  const probe = new Date(asUtc - 2 * 3600 * 1000);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Jerusalem",
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(probe);
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+  const localAsUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+  const offsetMs = localAsUtc - probe.getTime();
+  return Math.floor((asUtc - offsetMs) / 1000);
 }
 
 export function formatWorkTime(totalSeconds: number): string {

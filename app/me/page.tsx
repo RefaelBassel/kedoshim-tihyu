@@ -18,7 +18,7 @@ interface ReflectionPoint {
 import { db } from "@/lib/db";
 import { tasksForStudent, STATUS_META } from "@/lib/tasks";
 import { unreadFor, markAllRead } from "@/lib/notify";
-import { formatHebDate, formatWorkTime } from "@/lib/hebrew";
+import { formatHebDate, formatHebDateTime, formatWorkTime } from "@/lib/hebrew";
 
 // Personal page — strongly visual learning status (in the spirit of the
 // אמונה site journey): overdue alerts, the current task + its due date,
@@ -156,7 +156,7 @@ export default async function MePage() {
                   {current.title}
                 </h2>
                 <p className="mt-1 text-xs text-[color:var(--primary)]/60">
-                  📅 להגשה עד {formatHebDate(current.dueAt)}
+                  📅 להגשה עד {formatHebDateTime(current.dueAt)}
                 </p>
               </div>
               <div className="flex items-center gap-3">

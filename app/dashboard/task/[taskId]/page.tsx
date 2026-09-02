@@ -6,7 +6,7 @@ import ClassPulseDrawer from "@/components/class-pulse-drawer";
 import TaskAdminPanel, { UnassignButton } from "@/components/dashboard/task-admin";
 import { getTask, taskRoster, unassignedStudents, STATUS_META } from "@/lib/tasks";
 import { positionLabel } from "@/content/tasks/registry";
-import { formatHebDate, formatWorkTime } from "@/lib/hebrew";
+import { formatHebDateTime, formatWorkTime } from "@/lib/hebrew";
 import { updateDueDate, unassignStudent, assignStudent, unpublishTask } from "./actions";
 
 // Teacher view of one task: full roster, color-coded statuses (including
@@ -40,7 +40,7 @@ export default async function DashboardTaskPage({
   return (
     <PageShell
       title={task.title}
-      subtitle={`${positionLabel(task.content_ref) ? positionLabel(task.content_ref) + " · " : ""}להגשה עד ${formatHebDate(task.due_at)} · ${roster.length} מוקצים`}
+      subtitle={`${positionLabel(task.content_ref) ? positionLabel(task.content_ref) + " · " : ""}להגשה עד ${formatHebDateTime(task.due_at)} · ${roster.length} מוקצים`}
     >
       <ClassPulseDrawer taskId={task.id} />
       <TaskAdminPanel

@@ -9,7 +9,7 @@ import {
 } from "@/lib/tasks";
 import { sweepOverdue } from "@/lib/notify";
 import { isStudentMode } from "@/lib/student-mode";
-import { formatHebDate, formatWorkTime } from "@/lib/hebrew";
+import { formatHebDate, formatHebDateTime, formatWorkTime } from "@/lib/hebrew";
 
 export default async function TasksPage() {
   const session = await auth();
@@ -102,7 +102,7 @@ async function StudentView({
               {t.title}
             </h2>
             <p className="mt-1 text-xs text-[color:var(--primary)]/55">
-              📅 להגשה עד {formatHebDate(t.dueAt)}
+              📅 להגשה עד {formatHebDateTime(t.dueAt)}
               {t.workSeconds > 0 && <> · ⏱ עבדת {formatWorkTime(t.workSeconds)}</>}
             </p>
             <div className="mt-3 flex items-center gap-2">
@@ -166,7 +166,7 @@ async function TeacherView() {
                 {t.title}
               </h2>
               <p className="mt-1 text-xs text-[color:var(--primary)]/55">
-                📅 פורסמה {formatHebDate(t.publishedAt)} · להגשה עד {formatHebDate(t.dueAt)}
+                📅 פורסמה {formatHebDate(t.publishedAt)} · להגשה עד {formatHebDateTime(t.dueAt)}
               </p>
               <div className="mt-3 flex gap-2 text-[11px] font-bold">
                 <span className="rounded-full bg-[color:var(--primary)]/10 px-3 py-1 text-[color:var(--primary)]">

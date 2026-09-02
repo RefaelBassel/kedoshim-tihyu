@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { now } from "@/lib/tasks";
+import { israelLocalToUnix } from "@/lib/hebrew";
 
 // Teacher-only task management: due date, per-student (un)assignment, and
 // taking a task off the class entirely. Every action re-checks the session
@@ -24,10 +25,11 @@ function revalidate(taskId: number) {
 }
 
 // Change the final submission date (un-submit stays allowed until it).
-export async function updateDueDate(taskId: number, dueDate: string) {
+export async function updateDueDate(taskId: number, dueDate: string, dueTime = "23:59") {
   if (!(await requireRealTeacher())) return { ok: false, error: "למורים בלבד." };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return { ok: false, error: "תאריך לא תקין." };
-  const dueAt = Math.floor(new Date(`${dueDate}T23:59:00+03:00`).getTime() / 1000);
+  if (!/^\d{2}:\d{2}$/.test(dueTime)) return { ok: false, error: "שעה לא תקינה." };
+  const dueAt = israelLocalToUnix(dueDate, dueTime);
   await db().execute({
     sql: "UPDATE tasks SET due_at = ? WHERE id = ?",
     args: [dueAt, taskId],
