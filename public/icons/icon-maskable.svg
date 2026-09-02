@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Maskable PWA icon for "קדושים תהיו".
+  - viewBox 512x512, full-bleed almond background (palette 4 גפן ותאנה) —
+    required for maskable: after Android clips it there is no transparent gap.
+  - Artwork inside the 80% safe zone (≈ 51..461).
+  - Letter ק (for קדושים) in deep grape with a warm copper ring, chunky
+    Assistant-like construction: top bar, right leg, and the long left
+    descender that gives ק its shape.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="קדושים תהיו">
+  <rect width="512" height="512" fill="#fbf6f1"/>
+
+  <!-- Soft inner border in warm copper, inside the safe zone -->
+  <rect x="76" y="76" width="360" height="360" rx="56" ry="56"
+        fill="none" stroke="#b96a3b" stroke-width="6" opacity="0.5"/>
+
+  <g fill="#413055">
+    <!-- Top bar -->
+    <rect x="160" y="150" width="200" height="38" rx="6"/>
+    <!-- Right leg, curling in at the bottom -->
+    <rect x="322" y="150" width="38" height="150" rx="6"/>
+    <rect x="262" y="262" width="98" height="38" rx="6"/>
+    <!-- Left descender — the long leg of the ק -->
+    <rect x="160" y="196" width="38" height="192" rx="6"/>
+  </g>
+</svg>

@@ -1,0 +1,21 @@
+{
+  "name": "קדושים תהיו",
+  "short_name": "קדושים תהיו",
+  "description": "איך נראית חברה מתוקנת על פי ספרים ויקרא ושמואל ב — תוכנית בתנ״ך לכיתות ט, תיכון שחרית.",
+  "lang": "he",
+  "dir": "rtl",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#413055",
+  "background_color": "#fbf6f1",
+  "icons": [
+    {
+      "src": "/icons/icon-maskable.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any maskable"
+    }
+  ]
+}
