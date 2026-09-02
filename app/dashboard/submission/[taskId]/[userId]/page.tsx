@@ -68,10 +68,12 @@ export default async function SubmissionPage({
   return (
     <PageShell
       title={`הגשה של ${studentName}`}
-      subtitle={`${task.title} · ⏱ זמן עבודה בפועל: ${formatWorkTime(progress?.work_seconds ?? 0)} · ${
-        (progress?.stage ?? 1) >= 8
-          ? "חלק ב"
-          : `חלק א · שלב ${progress?.stage ?? 1}/${stagesFor(reg.content).length}`
+      subtitle={`${task.title} · ⏱ זמן עבודה בפועל: ${formatWorkTime(progress?.work_seconds ?? 0)}${
+        isSimple(reg.content)
+          ? ""
+          : (progress?.stage ?? 1) >= 8
+            ? " · חלק ב"
+            : ` · חלק א · שלב ${progress?.stage ?? 1}/${stagesFor(reg.content).length}`
       }`}
     >
       <div className="mx-auto max-w-3xl space-y-8">

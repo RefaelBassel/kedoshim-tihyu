@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { taskOrderIndex, taskPosition, type TaskPosition } from "@/content/tasks/registry";
 
 export type StudentTaskStatus =
   | "not_started" // טרם נלמדה (teacher-only label)
@@ -77,7 +78,8 @@ export async function tasksForStudent(userId: number, allPublished = false) {
          ORDER BY t.due_at ASC`,
     args: allPublished ? [userId, userId, now()] : [userId, now()],
   });
-  return res.rows.map((r) => {
+  const rows = sortByCurriculum(res.rows);
+  return rows.map((r) => {
     const progress: ProgressRow | null = r.opened_at !== null || r.submitted_at !== null
       ? {
           task_id: Number(r.id),
@@ -93,6 +95,7 @@ export async function tasksForStudent(userId: number, allPublished = false) {
     return {
       id: Number(r.id),
       contentRef: String(r.content_ref),
+      position: taskPosition(String(r.content_ref)),
       title: String(r.title),
       publishedAt: Number(r.published_at),
       dueAt: Number(r.due_at),
@@ -118,6 +121,17 @@ export async function continueTask(userId: number, allPublished = false) {
     null
   );
 }
+
+// Every task list on the site is ordered by the curriculum (unit, then the
+// task's number inside the unit) — due dates are a deadline, not an order.
+function sortByCurriculum<T extends Record<string, unknown>>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => {
+    const d = taskOrderIndex(String(a.content_ref)) - taskOrderIndex(String(b.content_ref));
+    return d !== 0 ? d : Number(a.due_at) - Number(b.due_at);
+  });
+}
+
+export type { TaskPosition };
 
 export async function getTask(taskId: number): Promise<TaskRow | null> {
   const res = await db().execute({
@@ -228,15 +242,33 @@ export async function allTasksWithStats() {
           FROM tasks t ORDER BY t.due_at ASC`,
     args: [],
   });
-  return res.rows.map((r) => ({
+  return sortByCurriculum(res.rows).map((r) => ({
     id: Number(r.id),
     contentRef: String(r.content_ref),
+    position: taskPosition(String(r.content_ref)),
     title: String(r.title),
     publishedAt: Number(r.published_at),
     dueAt: Number(r.due_at),
     assigned: Number(r.assigned),
     submitted: Number(r.submitted),
     graded: Number(r.graded),
+  }));
+}
+
+// Students who are onboarded but NOT assigned to this task (after a teacher
+// removed them, or joined before this feature) — offered for re-assignment.
+export async function unassignedStudents(taskId: number) {
+  const res = await db().execute({
+    sql: `SELECT u.id, u.full_name, u.email, u.class FROM users u
+          WHERE u.role = 'student' AND u.onboarded_at IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM task_assignments a WHERE a.task_id = ? AND a.user_id = u.id)
+          ORDER BY u.class, u.full_name`,
+    args: [taskId],
+  });
+  return res.rows.map((r) => ({
+    id: Number(r.id),
+    fullName: (r.full_name as string | null) ?? String(r.email),
+    klass: (r.class as string | null) ?? null,
   }));
 }
 

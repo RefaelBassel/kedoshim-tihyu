@@ -3,8 +3,11 @@ import { auth } from "@/auth";
 import { redirect, notFound } from "next/navigation";
 import PageShell from "@/components/page-shell";
 import ClassPulseDrawer from "@/components/class-pulse-drawer";
-import { getTask, taskRoster, STATUS_META } from "@/lib/tasks";
+import TaskAdminPanel, { UnassignButton } from "@/components/dashboard/task-admin";
+import { getTask, taskRoster, unassignedStudents, STATUS_META } from "@/lib/tasks";
+import { positionLabel } from "@/content/tasks/registry";
 import { formatHebDate, formatWorkTime } from "@/lib/hebrew";
+import { updateDueDate, unassignStudent, assignStudent, unpublishTask } from "./actions";
 
 // Teacher view of one task: full roster, color-coded statuses (including
 // טרם נלמדה), work time, progress, and links into each submission.
@@ -24,6 +27,8 @@ export default async function DashboardTaskPage({
   if (!task) notFound();
 
   const roster = await taskRoster(taskId);
+  const unassigned = await unassignedStudents(taskId);
+  const hasWork = roster.some((r) => r.status !== "not_started" || r.workSeconds > 0);
   const groups = {
     submitted: roster.filter((r) => r.status === "submitted"),
     graded: roster.filter((r) => r.status === "graded"),
@@ -35,9 +40,19 @@ export default async function DashboardTaskPage({
   return (
     <PageShell
       title={task.title}
-      subtitle={`להגשה עד ${formatHebDate(task.due_at)} · ${roster.length} בכיתה`}
+      subtitle={`${positionLabel(task.content_ref) ? positionLabel(task.content_ref) + " · " : ""}להגשה עד ${formatHebDate(task.due_at)} · ${roster.length} מוקצים`}
     >
       <ClassPulseDrawer taskId={task.id} />
+      <TaskAdminPanel
+        taskId={task.id}
+        dueAt={task.due_at}
+        assignedCount={roster.length}
+        hasWork={hasWork}
+        unassigned={unassigned}
+        updateDueDate={updateDueDate}
+        assignStudent={assignStudent}
+        unpublishTask={unpublishTask}
+      />
       <p className="mb-6 flex items-center justify-center gap-5 text-center">
         <Link
           href={`/tasks/${taskId}`}
@@ -127,6 +142,13 @@ export default async function DashboardTaskPage({
                           >
                             {r.status === "submitted" ? "לבדיקה ✨" : "צפייה"}
                           </Link>
+                          <UnassignButton
+                            taskId={taskId}
+                            userId={r.userId}
+                            name={r.fullName}
+                            hasWork={r.status !== "not_started" || r.workSeconds > 0}
+                            action={unassignStudent}
+                          />
                         </td>
                       </tr>
                     );

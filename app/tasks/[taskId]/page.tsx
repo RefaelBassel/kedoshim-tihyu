@@ -12,7 +12,7 @@ import {
   getAnswers,
   getMarkings,
 } from "@/lib/tasks";
-import { getTaskContent, countTaskUnits } from "@/content/tasks/registry";
+import { getTaskContent, countTaskUnits, positionLabel } from "@/content/tasks/registry";
 import { isStudentMode } from "@/lib/student-mode";
 import { formatFullDate } from "@/lib/hebrew";
 
@@ -77,6 +77,11 @@ export default async function TaskPage({
           <p className="mb-1 text-[11px] font-semibold tracking-[0.25em] text-[color:var(--accent)]">
             {reg.content.bookRef}
           </p>
+          {positionLabel(task.content_ref) && (
+            <p className="mb-1 text-xs font-bold text-[color:var(--primary)]/60">
+              {positionLabel(task.content_ref)}
+            </p>
+          )}
           <h1 className="font-display text-3xl font-extrabold text-[color:var(--primary)] sm:text-4xl">
             {reg.content.title}
           </h1>

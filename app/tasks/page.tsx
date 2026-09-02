@@ -93,6 +93,11 @@ async function StudentView({
                 </span>
               )}
             </div>
+            {t.position && (
+              <p className="mb-1 text-[11px] font-bold tracking-wide text-[color:var(--accent)]">
+                {t.position.unit} · משימה {t.position.order} מתוך {t.position.total}
+              </p>
+            )}
             <h2 className="font-display text-lg font-bold leading-snug text-[color:var(--primary)]">
               {t.title}
             </h2>
@@ -152,6 +157,11 @@ async function TeacherView() {
               href={`/dashboard/task/${t.id}`}
               className="group block rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-5 shadow-sm transition hover:border-[color:var(--accent)]/60 hover:shadow-md"
             >
+              {t.position && (
+                <p className="mb-1 text-[11px] font-bold tracking-wide text-[color:var(--accent)]">
+                  {t.position.unit} · משימה {t.position.order} מתוך {t.position.total}
+                </p>
+              )}
               <h2 className="font-display text-lg font-bold text-[color:var(--primary)]">
                 {t.title}
               </h2>

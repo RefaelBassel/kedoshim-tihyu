@@ -47,3 +47,4 @@ next-env.d.ts
 
 scripts/__pycache__/
 scripts/.asr-cache/
+.vercel

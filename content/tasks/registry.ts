@@ -24,6 +24,36 @@ export function getTaskContent(ref: string): RegisteredTask | null {
   return TASK_REGISTRY[ref] ?? null;
 }
 
+// Curriculum order of a task = its position in the registry (units in study
+// order, tasks inside a unit in their `order`). Unknown refs sort last.
+const REGISTRY_ORDER = Object.keys(TASK_REGISTRY);
+export function taskOrderIndex(ref: string): number {
+  const i = REGISTRY_ORDER.indexOf(ref);
+  return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+}
+
+// "משימה 2 מתוך 5 · ויקרא ט״ז" — the unit, the task's number inside it and
+// the unit's task count.
+export interface TaskPosition {
+  unit: string;
+  order: number;
+  total: number;
+}
+export function taskPosition(ref: string): TaskPosition | null {
+  const reg = TASK_REGISTRY[ref];
+  if (!reg?.content.unit) return null;
+  const unit = reg.content.unit;
+  const siblings = Object.values(TASK_REGISTRY).filter((r) => r.content.unit === unit);
+  const order = reg.content.order ?? siblings.indexOf(reg) + 1;
+  return { unit, order, total: siblings.length };
+}
+export function positionLabel(ref: string): string | null {
+  const p = taskPosition(ref);
+  return p ? `${p.unit} · משימה ${p.order} מתוך ${p.total}` : null;
+}
+
+export type StageInfo = { n: number; title: string; why: string };
+
 // The fixed 7 pshat-decode stages — the iron rule of every FULL task.
 // Parallelism is not a stage of its own: it is a genre-specific tool that
 // opens inside the genre stage only when שירה/נאום is chosen (or the task
@@ -39,13 +69,10 @@ export const DECODE_STAGES = [
   { n: 7, title: "בדיקת הבנה", why: "לוודא שבאמת הבנתי" },
 ] as const;
 
-// SIMPLE tasks have a single Part-A stage: a guided first reading with the
-// narration, then straight to the worksheet (stage 8).
-export const SIMPLE_STAGES = [
-  { n: 1, title: "קריאה ראשונה", why: "קודם קוראים ומאזינים, אחר־כך עונים" },
-] as const;
-
-export type StageInfo = { n: number; title: string; why: string };
+// SIMPLE tasks have NO Part-A stages: the reading happens in class with the
+// teacher and a physical Tanach; the site task is the worksheet only (stage 8),
+// with the passage available as a reference block on top of it.
+export const SIMPLE_STAGES: readonly StageInfo[] = [];
 
 export function isSimple(content: TaskContent): boolean {
   return content.mode === "simple";

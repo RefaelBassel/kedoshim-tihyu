@@ -6,7 +6,7 @@ import PageShell from "@/components/page-shell";
 import { db } from "@/lib/db";
 import { allStudents, allTasksWithStats, now } from "@/lib/tasks";
 import { sweepOverdue } from "@/lib/notify";
-import { TASK_REGISTRY } from "@/content/tasks/registry";
+import { TASK_REGISTRY, positionLabel } from "@/content/tasks/registry";
 import { formatHebDate } from "@/lib/hebrew";
 import { revalidatePath } from "next/cache";
 
@@ -142,6 +142,7 @@ export default async function DashboardPage() {
               >
                 {availableRefs.map(([ref, reg]) => (
                   <option key={ref} value={ref}>
+                    {positionLabel(ref) ? `${positionLabel(ref)} — ` : ""}
                     {reg.content.title}
                   </option>
                 ))}
@@ -249,6 +250,11 @@ export default async function DashboardPage() {
               href={`/dashboard/task/${t.id}`}
               className="group block rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-5 shadow-sm transition hover:border-[color:var(--accent)]/60 hover:shadow-md"
             >
+              {t.position && (
+                <p className="mb-1 text-[11px] font-bold tracking-wide text-[color:var(--accent)]">
+                  {t.position.unit} · משימה {t.position.order} מתוך {t.position.total}
+                </p>
+              )}
               <h3 className="font-display text-base font-bold text-[color:var(--primary)]">
                 {t.title}
               </h3>

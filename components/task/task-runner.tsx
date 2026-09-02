@@ -98,10 +98,14 @@ export default function TaskRunner({
 }: Props) {
   const [answers, setAnswers] = useState<Record<string, string>>(initialAnswers);
   const [markings, setMarkings] = useState<Marking[]>(initialMarkings);
-  // Stages 1-7 = Part A (pshat decoding); stage 8 = Part B (העמקה ודיון).
-  const [stage, setStage] = useState(Math.min(Math.max(initialStage, 1), 8));
+  // Task mode: full (7 decode stages, then the worksheet) or simple (the
+  // worksheet only — stage 8 from the first moment).
+  const simple = isSimple(content);
+  const startStage = simple ? 8 : Math.min(Math.max(initialStage, 1), 8);
+  // Stages 1-7 = Part A (pshat decoding); stage 8 = Part B.
+  const [stage, setStage] = useState(startStage);
   // Highest stage ever reached — navigating back never re-locks later stages.
-  const [maxStage, setMaxStage] = useState(Math.min(Math.max(initialStage, 1), 8));
+  const [maxStage, setMaxStage] = useState(startStage);
   const [submitted, setSubmitted] = useState(initialSubmitted);
   const [workSeconds, setWorkSeconds] = useState(initialWorkSeconds);
   const [clock, setClock] = useState("");
@@ -180,8 +184,6 @@ export default function TaskRunner({
   const [questionDraft, setQuestionDraft] = useState("");
   const [banked, setBanked] = useState<string[]>(initialQuestions ?? []);
   const readOnly = submitted;
-  // Task mode: full (7 decode stages) or simple (one reading stage).
-  const simple = isSimple(content);
   const stages = stagesFor(content);
   const partAStages = stages.length;
   const questionBank = !simple;
@@ -290,6 +292,19 @@ export default function TaskRunner({
     },
     [taskId, answeredCount, totalUnits]
   );
+
+  // Simple tasks live at stage 8: record that once, so the class board and
+  // the personal page show "חלק ב" rather than an imaginary Part A.
+  useEffect(() => {
+    if (simple && initialStage < 8 && !initialSubmitted) {
+      fetch(`/api/tasks/${taskId}/state`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stage: 8 }),
+      }).catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---------- answers ----------
   const answerTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -629,7 +644,7 @@ export default function TaskRunner({
         </div>
       )}
 
-      {/* ===== two-part progress rail: each part is its own visual block ===== */}
+      {/* ===== two-part progress rail (full tasks only) ===== */}
       {canReset && (
         <div className="mb-2 flex justify-end">
           <button
@@ -642,6 +657,7 @@ export default function TaskRunner({
           </button>
         </div>
       )}
+      {!simple && (
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-stretch">
         {/* Part A block */}
         <div
@@ -739,24 +755,14 @@ export default function TaskRunner({
           </button>
         </div>
       </div>
+      )}
       {stage <= 7 && stages[stage - 1] && (
         <p className="mb-6 text-xs text-[color:var(--accent)]">
           🎯 למה השלב הזה? <b>{stages[stage - 1].why}</b>
         </p>
       )}
 
-      {/* ===== Part A: simple reading, or decode stages 1-7 ===== */}
-      {stage <= 7 && simple && (
-        <SimpleReadingStage
-          content={content}
-          passage={mainPassage}
-          markOf={markOf}
-          setMenu={setMenu}
-          readOnly={readOnly}
-          askClaude={askClaude}
-          advanceStage={advanceStage}
-        />
-      )}
+      {/* ===== Part A: decode stages 1-7 (full tasks) ===== */}
       {stage <= 7 && !simple && (
         <DecodeStage
           stage={stage}
@@ -783,9 +789,11 @@ export default function TaskRunner({
       {stage === 8 && (
         <div className="space-y-10">
           <div className="rounded-2xl border-2 border-[color:var(--primary)]/25 bg-[color:var(--card)] p-6 text-center">
-            <p className="mb-1 text-[11px] font-semibold tracking-[0.3em] text-[color:var(--accent)]">
-              חלק ב
-            </p>
+            {!simple && (
+              <p className="mb-1 text-[11px] font-semibold tracking-[0.3em] text-[color:var(--accent)]">
+                חלק ב
+              </p>
+            )}
             <h2 className="font-display text-2xl font-extrabold text-[color:var(--primary)]">
               {partB.title}
             </h2>
@@ -793,6 +801,15 @@ export default function TaskRunner({
               {partB.subtitle}
             </p>
           </div>
+          {simple && (
+            <ReferencePassage
+              content={content}
+              passage={mainPassage}
+              markOf={markOf}
+              setMenu={setMenu}
+              readOnly={readOnly}
+            />
+          )}
           {content.sections.map((section, si) => (
             <section key={section.key}>
               <div className="mb-4 flex items-center gap-3">
@@ -1609,61 +1626,49 @@ function DecodeStage(props: {
 }
 
 // =============================================================================
-// Simple tasks: ONE reading stage — the scene, the teacher's instruction, the
-// passage with narration + taamim tools, then straight to the worksheet.
+// Simple tasks: the passage as a collapsible reference block on top of the
+// worksheet — the reading itself happened in class with a physical Tanach.
+// Narration and the taamim tools stay available; no marking, no question bank.
 // =============================================================================
 
-function SimpleReadingStage(props: {
+function ReferencePassage(props: {
   content: TaskContent;
   passage: PassageBlock;
   markOf: (p: string, i: number) => Marking[];
   setMenu: (m: WordMenuState | null) => void;
   readOnly: boolean;
-  askClaude: (context: string, input: string) => void;
-  advanceStage: () => void;
 }) {
-  const { content, passage, markOf, setMenu, readOnly, askClaude, advanceStage } = props;
+  const { content, passage, markOf, setMenu, readOnly } = props;
+  const [open, setOpen] = useState(true);
   return (
     <div>
-      <div className="mb-5">
-        <StageCard emoji="📖" title="קריאה ראשונה — קוראים ומאזינים">
-          {content.heroArt && (
-            <div className="mb-4">
-              <TaskArt art={content.heroArt.art} caption={content.heroArt.caption} />
-            </div>
-          )}
-          <p className="text-sm leading-7 text-[color:var(--foreground)]/75">
-            {content.readingIntro ??
-              "קראו את הפסוקים בנחת, ואז לחצו 🔊 והאזינו לקריין תוך כדי מעקב. עוד לא עונים — רק פוגשים את הטקסט."}
-          </p>
-        </StageCard>
-      </div>
-      <InteractivePassage
-        passage={passage}
-        markOf={markOf}
-        setMenu={setMenu}
-        readOnly={readOnly}
-        allowMark={false}
-      />
-      <div className="mt-6 flex items-center justify-between">
+      {content.heroArt && (
+        <div className="mb-4">
+          <TaskArt art={content.heroArt.art} caption={content.heroArt.caption} />
+        </div>
+      )}
+      <div className="mb-2 flex items-center justify-between gap-3">
         <button
-          onClick={() =>
-            askClaude(
-              `קריאה ראשונה של ${passage.ref} (משימה פשוטה: קריאה, האזנה, טעמים והתמצאות — בלי מילה מנחה ובלי מאגר שאלות).`,
-              "נתקעתי בקריאה — צריך עזרה קטנה"
-            )
-          }
-          className="rounded-full border border-[color:var(--border)] px-4 py-2 text-xs font-semibold text-[color:var(--primary)] transition hover:border-[color:var(--accent)]"
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="rounded-full border border-[color:var(--accent)]/40 px-4 py-1.5 text-xs font-bold text-[color:var(--accent)] transition hover:bg-[color:var(--accent)]/10"
         >
-          ✨ נתקעתי — עזרה קטנה
+          📖 הפסוקים לעיון — {open ? "הסתרה" : "הצגה"}
         </button>
-        <button
-          onClick={advanceStage}
-          className="rounded-full bg-[color:var(--accent)] px-8 py-2.5 text-sm font-bold text-white shadow transition hover:scale-[1.02]"
-        >
-          קראתי והאזנתי — לשאלות ←
-        </button>
+        <p className="text-[11px] text-[color:var(--primary)]/55">
+          {content.readingIntro ??
+            "קראנו בכיתה מהתנ״ך. כאן הפסוקים לעיון תוך כדי המשימה: 🔊 השמעה, 🎯 הדגשת האתנחתא."}
+        </p>
       </div>
+      {open && (
+        <InteractivePassage
+          passage={passage}
+          markOf={markOf}
+          setMenu={setMenu}
+          readOnly={readOnly}
+          allowMark={false}
+        />
+      )}
     </div>
   );
 }

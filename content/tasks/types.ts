@@ -121,20 +121,26 @@ export interface DecodeConfig {
 // Two task modes:
 //   "full"   — Part A is the 7-stage pshat decode (מילה מנחה, מילים קשות,
 //              סוגה, שאלת שאלות...), Part B the deepening worksheet.
-//   "simple" — Part A is ONE guided first reading (listen, read, find your
-//              way around the chapter — no word marking, no question bank),
-//              Part B is the worksheet. Used while the decoding skills are
-//              not yet taught (e.g. ויקרא ט״ז at the start of the year).
+//   "simple" — no Part A at all: the reading is done in class by the teacher
+//              with a physical Tanach. The site task is the worksheet, with
+//              the passage (narration, taamim tools; no word marking, no
+//              question bank) as a reference block on top. Used while the
+//              decoding skills are not yet taught (ויקרא ט״ז).
 export type TaskMode = "full" | "simple";
 
 export interface TaskContent {
   ref: string; // registry key, e.g. 'vayikra-16-1'
   title: string;
   subtitle?: string;
+  // Curriculum unit this task belongs to (e.g. 'ויקרא ט״ז') and its 1-based
+  // position inside the unit — shown as "משימה 2 מתוך 5" and used to sort
+  // every task list (never by due date alone).
+  unit?: string;
+  order?: number;
   bookRef: string; // e.g. 'ספר ויקרא, פרק ט״ז (פסוקים א׳–י׳)'
   skill: string; // e.g. 'הבנת הנקרא · התמצאות בתנ״ך · טעמי המקרא'
   mode?: TaskMode; // default "full"
-  // simple mode: the instruction shown in the reading stage
+  // simple mode: a short line above the reference passage (optional)
   readingIntro?: string;
   decode?: DecodeConfig; // required in full mode
   // Opening illustration shown in stage 1 — sets the scene.

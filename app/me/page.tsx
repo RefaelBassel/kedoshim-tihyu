@@ -156,7 +156,7 @@ export default async function MePage() {
                   {current.title}
                 </h2>
                 <p className="mt-1 text-xs text-[color:var(--primary)]/60">
-                  📅 להגשה עד {formatHebDate(current.dueAt)} · {current.stage >= 8 ? "חלק ב" : "חלק א"}
+                  📅 להגשה עד {formatHebDate(current.dueAt)}
                 </p>
               </div>
               <div className="flex items-center gap-3">
@@ -211,6 +211,11 @@ export default async function MePage() {
                               : "📖"}
                     </span>
                     <div className="me-2">
+                      {t.position && (
+                        <span className="me-2 rounded-full bg-[color:var(--accent)]/12 px-2 py-0.5 text-[10px] font-bold text-[color:var(--accent)]">
+                          {t.position.order}/{t.position.total}
+                        </span>
+                      )}
                       <Link
                         href={`/tasks/${t.id}`}
                         className="font-semibold text-[color:var(--primary)] underline-offset-2 hover:underline"

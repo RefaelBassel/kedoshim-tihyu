@@ -85,7 +85,9 @@ export async function GET(
   const t = now();
   const students = roster.rows.map((r) => {
     const uid = Number(r.id);
-    const stage = r.stage != null ? Number(r.stage) : 0;
+    const rawStage = r.stage != null ? Number(r.stage) : 0;
+    // simple tasks have no Part A — anyone who opened the task is in Part B
+    const stage = stagesFor(reg.content).length === 0 && rawStage > 0 ? 8 : rawStage;
     const submitted = r.submitted_at != null;
     const lastBeat = r.updated_at != null ? Number(r.updated_at) : null;
     const opened = r.opened_at != null;
