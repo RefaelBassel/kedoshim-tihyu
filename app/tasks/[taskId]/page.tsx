@@ -4,6 +4,7 @@ import TopNav from "@/components/top-nav";
 import ClassPulseDrawer from "@/components/class-pulse-drawer";
 import ReflectionDrawer from "@/components/reflection-drawer";
 import TaskRunner from "@/components/task/task-runner";
+import PrintLinks from "@/components/task/print-links";
 import {
   getTask,
   isAssigned,
@@ -90,6 +91,9 @@ export default async function TaskPage({
           </p>
           <p className="mt-1 text-xs text-[color:var(--primary)]/55">
             📅 להגשה עד: {formatFullDate(task.due_at)}
+          </p>
+          <p className="mt-2">
+            <PrintLinks contentRef={task.content_ref} />
           </p>
         </div>
 

@@ -4,6 +4,7 @@ import { vayikra16b, vayikra16bMainPassage } from "./vayikra-16-2";
 import { vayikra16c, vayikra16cMainPassage } from "./vayikra-16-3";
 import { vayikra16d, vayikra16dMainPassage } from "./vayikra-16-4";
 import { vayikra16e, vayikra16eMainPassage } from "./vayikra-16-5";
+import printManifest from "./print-manifest.json";
 
 // Registry of task content, keyed by content_ref stored on the tasks table.
 // The teacher publishes a task by picking a ref from here.
@@ -47,6 +48,13 @@ export function taskPosition(ref: string): TaskPosition | null {
   const order = reg.content.order ?? siblings.indexOf(reg) + 1;
   return { unit, order, total: siblings.length };
 }
+// Printable versions (public/print/<ref>.pdf + .docx), built by
+// scripts/build-print.mts; the manifest says which tasks have them.
+export function printFiles(ref: string): { pdf: string; docx: string } | null {
+  const m = printManifest as Record<string, { pdf: string; docx: string }>;
+  return m[ref] ?? null;
+}
+
 export function positionLabel(ref: string): string | null {
   const p = taskPosition(ref);
   return p ? `${p.unit} · משימה ${p.order} מתוך ${p.total}` : null;

@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { allStudents, allTasksWithStats, now } from "@/lib/tasks";
 import { sweepOverdue } from "@/lib/notify";
 import { TASK_REGISTRY, positionLabel } from "@/content/tasks/registry";
+import PrintLinks from "@/components/task/print-links";
 import { formatHebDate, formatHebDateTime, israelLocalToUnix } from "@/lib/hebrew";
 import { revalidatePath } from "next/cache";
 

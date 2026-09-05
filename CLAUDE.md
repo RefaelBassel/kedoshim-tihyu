@@ -72,3 +72,10 @@ Second subtitle: תוכנית בתנ"ך לכיתות ט, תיכון שחרית.
   (CC BY-NC-ND, served unmodified, credit in UI). audio-map.json built by
   scripts/asr_align_verses.py (needs a full ffmpeg — the Playwright one is stripped;
   `python -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())"`).
+
+## Printable worksheets
+- `npm run build:print` (scripts/build-print.mts) renders every task in the registry to
+  public/print/<ref>.pdf (Chromium, A4, 2 cm margins, page numbers, no separator rules)
+  and public/print/<ref>.docx (editable, RTL), and writes content/tasks/print-manifest.json.
+  Re-run after any content change and commit the files; the task pages show the links.
+

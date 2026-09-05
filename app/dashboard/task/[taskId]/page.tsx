@@ -4,6 +4,7 @@ import { redirect, notFound } from "next/navigation";
 import PageShell from "@/components/page-shell";
 import ClassPulseDrawer from "@/components/class-pulse-drawer";
 import TaskAdminPanel, { UnassignButton } from "@/components/dashboard/task-admin";
+import PrintLinks from "@/components/task/print-links";
 import { getTask, taskRoster, unassignedStudents, STATUS_META } from "@/lib/tasks";
 import { positionLabel } from "@/content/tasks/registry";
 import { formatHebDateTime, formatWorkTime } from "@/lib/hebrew";
@@ -67,6 +68,7 @@ export default async function DashboardTaskPage({
         >
           🖥️ לוח כיתה להקרנה
         </Link>
+        <PrintLinks contentRef={task.content_ref} />
       </p>
 
       {(
