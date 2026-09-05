@@ -62,8 +62,9 @@ Second subtitle: תוכנית בתנ"ך לכיתות ט, תיכון שחרית.
 
 ## Task modes (content/tasks/types.ts)
 - `mode: "full"` — the 7-stage pshat decode (Part A) + worksheet (Part B), as in בינת התורה.
-- `mode: "simple"` — ONE guided first-reading stage (audio, taamim toggles, no word
-  marking, no question bank) + worksheet. The five ויקרא ט״ז tasks are simple.
+- `mode: "simple"` — NO Part A (the reading happens in class with a physical Tanach);
+  the worksheet only, with the passage as a collapsible reference block on top (audio,
+  taamim toggles, no word marking, no question bank). The five ויקרא ט״ז tasks are simple.
 - Verse text with taamim lives in content/tasks/vayikra-16-verses.ts (Sefaria, the Name
   written ה׳ keeping its taam).
 
