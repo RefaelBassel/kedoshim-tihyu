@@ -80,3 +80,21 @@ Second subtitle: תוכנית בתנ"ך לכיתות ט, תיכון שחרית.
   and public/print/<ref>.docx (editable, RTL), and writes content/tasks/print-manifest.json.
   Re-run after any content change and commit the files; the task pages show the links.
 
+
+## Access & notifications (27.9.2026)
+- Google-only sign-in; every new account is PENDING until a teacher approves it in
+  `/dashboard/students` (approve / block / remove / pre-approve by email). Guest sign-in
+  was removed. Gate = root `proxy.ts` running the full auth on Node (lib/approval.ts).
+- The site NEVER emails teachers (enforced in lib/email.ts); local dev never sends email.
+- Cancelling a task unassigns without deleting work (task_cancellations); republish restores.
+
+## The debate layer (Reut's design, 27.9.2026)
+Class strength = debate. Each unit carries a `discussion` question (tied to its verses)
+and `review` points; a lesson has three tools in ANY order (teacher's choice, never
+enforced): 🔁 review deck (`/dashboard/review/[taskId]`), 💬 debate on the PREVIOUS
+unit's question (`/dashboard/discussion/[taskId]/control` = teacher's phone/laptop,
+`/board` = projector, input-free; state in lib/discussion.ts tables, polled), 📖 study.
+Only students who answered every worksheet question are eligible to speak (teacher can
+override). Teacher edits everything in place: worksheet questions (hide / reword / add),
+discussion, review — lib/content-overrides.ts, `/dashboard/content`. Rule from Rafael:
+a projected board never contains teacher input; the control is a separate page.
