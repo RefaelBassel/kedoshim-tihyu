@@ -33,7 +33,13 @@ export default async function OnboardingPage() {
     // after publication would see an empty task list (and stay invisible
     // on the class board).
     if (!teacher) {
-      const tasks = await db().execute({ sql: "SELECT id FROM tasks", args: [] });
+      const { ensureCancellationsTable } = await import("@/lib/tasks");
+      await ensureCancellationsTable();
+      const tasks = await db().execute({
+        sql: `SELECT t.id FROM tasks t
+              WHERE NOT EXISTS (SELECT 1 FROM task_cancellations c WHERE c.task_id = t.id)`,
+        args: [],
+      });
       for (const t of tasks.rows) {
         await db().execute({
           sql: `INSERT OR IGNORE INTO task_assignments (task_id, user_id, assigned_at)

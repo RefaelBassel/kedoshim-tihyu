@@ -5,10 +5,16 @@ import PageShell from "@/components/page-shell";
 import ClassPulseDrawer from "@/components/class-pulse-drawer";
 import TaskAdminPanel, { UnassignButton } from "@/components/dashboard/task-admin";
 import PrintLinks from "@/components/task/print-links";
-import { getTask, taskRoster, unassignedStudents, STATUS_META } from "@/lib/tasks";
+import { getTask, taskRoster, unassignedStudents, STATUS_META, isTaskCancelled } from "@/lib/tasks";
 import { positionLabel } from "@/content/tasks/registry";
 import { formatHebDateTime, formatWorkTime } from "@/lib/hebrew";
-import { updateDueDate, unassignStudent, assignStudent, unpublishTask } from "./actions";
+import {
+  updateDueDate,
+  unassignStudent,
+  assignStudent,
+  unpublishTask,
+  republishTaskAction,
+} from "./actions";
 
 // Teacher view of one task: full roster, color-coded statuses (including
 // טרם נלמדה), work time, progress, and links into each submission.
@@ -38,12 +44,20 @@ export default async function DashboardTaskPage({
     not_started: roster.filter((r) => r.status === "not_started"),
   };
 
+  const cancelled = await isTaskCancelled(task.id);
+
   return (
     <PageShell
       title={task.title}
       subtitle={`${positionLabel(task.content_ref) ? positionLabel(task.content_ref) + " · " : ""}להגשה עד ${formatHebDateTime(task.due_at)} · ${roster.length} מוקצים`}
     >
       <ClassPulseDrawer taskId={task.id} />
+      {cancelled && (
+        <div className="mx-auto mb-4 max-w-3xl rounded-2xl border-2 border-[color:var(--danger)]/40 bg-[color:var(--danger)]/5 px-5 py-3 text-sm">
+          <b className="text-[color:var(--danger)]">🚫 המשימה מבוטלת</b> — התלמידים לא רואים
+          אותה; כל העבודה שנשמרה נשארה. ״פרסום מחדש״ מחזיר אותה לכולם.
+        </div>
+      )}
       <TaskAdminPanel
         taskId={task.id}
         dueAt={task.due_at}
@@ -53,6 +67,8 @@ export default async function DashboardTaskPage({
         updateDueDate={updateDueDate}
         assignStudent={assignStudent}
         unpublishTask={unpublishTask}
+        republishTask={republishTaskAction}
+        cancelled={cancelled}
       />
       <p className="mb-6 flex items-center justify-center gap-5 text-center">
         <Link

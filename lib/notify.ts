@@ -27,21 +27,20 @@ export async function teacherIds(): Promise<{ id: number; email: string }[]> {
   return res.rows.map((r) => ({ id: Number(r.id), email: String(r.email) }));
 }
 
-// Bell + email to every teacher.
+// Bell to every teacher — NEVER email. Rafael and Reut (2026-09-27): the
+// in-site notifications are enough; no email to teachers for anything.
 export async function notifyTeachers(opts: {
   kind: string;
   title: string;
   body?: string;
   link?: string;
+  email?: boolean;
 }) {
+  const { email: _ignored, ...notice } = opts;
+  void _ignored;
   const teachers = await teacherIds();
   for (const t of teachers) {
-    await createNotification({ userId: t.id, ...opts });
-    await sendEmail({
-      to: t.email,
-      subject: `קדושים תהיו · ${opts.title}`,
-      html: `<div dir="rtl"><p>${opts.title}</p><p>${opts.body ?? ""}</p></div>`,
-    });
+    await createNotification({ userId: t.id, ...notice });
   }
 }
 

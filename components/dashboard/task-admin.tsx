@@ -38,6 +38,8 @@ export default function TaskAdminPanel({
   updateDueDate,
   assignStudent,
   unpublishTask,
+  republishTask,
+  cancelled = false,
 }: {
   taskId: number;
   dueAt: number;
@@ -47,6 +49,8 @@ export default function TaskAdminPanel({
   updateDueDate: (taskId: number, dueDate: string, dueTime: string) => Promise<Result>;
   assignStudent: (taskId: number, userId: number) => Promise<Result>;
   unpublishTask: (taskId: number) => Promise<Result>;
+  republishTask?: (taskId: number) => Promise<Result>;
+  cancelled?: boolean;
 }) {
   const router = useRouter();
   const [date, setDate] = useState(toDateInput(dueAt));
@@ -64,14 +68,14 @@ export default function TaskAdminPanel({
 
   const onUnpublish = () => {
     const warning = hasWork
-      ? "לבטל את הפרסום של המשימה? תשומת לב: יש כבר תלמידים שהתחילו לעבוד עליה — התשובות שלהם יימחקו. המשימה תחזור לרשימת המשימות לפרסום."
-      : "לבטל את הפרסום של המשימה? היא תיעלם מהכיתה ותחזור לרשימת המשימות לפרסום.";
+      ? "לבטל את ההקצאה של המשימה לכל הכיתה? המשימה תיעלם מהתלמידים, אבל כל מה שכבר כתבו נשמר — אפשר לפרסם מחדש בכל רגע והכול יחזור."
+      : "לבטל את ההקצאה של המשימה לכל הכיתה? היא תיעלם מהתלמידים; אפשר לפרסם מחדש בכל רגע.";
     if (!window.confirm(warning)) return;
-    start(async () => {
-      const r = await unpublishTask(taskId);
-      if (r.ok) router.push("/dashboard");
-      else setMsg(r.error ?? "משהו השתבש.");
-    });
+    run(() => unpublishTask(taskId), "המשימה הוסרה מהכיתה — העבודה נשמרה. אפשר לפרסם מחדש.");
+  };
+  const onRepublish = () => {
+    if (!republishTask) return;
+    run(() => republishTask(taskId), "המשימה פורסמה מחדש לכל הכיתה ✅");
   };
 
   return (
@@ -115,14 +119,26 @@ export default function TaskAdminPanel({
           <span className="text-xs text-[color:var(--primary)]/55">
             מוקצה ל-{assignedCount} תלמידים
           </span>
-          <button
-            type="button"
-            disabled={pending}
-            onClick={onUnpublish}
-            className="rounded-full border border-[color:var(--danger)]/50 px-4 py-2 text-xs font-bold text-[color:var(--danger)] transition hover:bg-[color:var(--danger)]/5 disabled:opacity-40"
-          >
-            🗑️ ביטול הפרסום לכל הכיתה
-          </button>
+          {cancelled ? (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={onRepublish}
+              className="rounded-full bg-[color:var(--success)] px-4 py-2 text-xs font-bold text-white shadow transition hover:scale-[1.02] disabled:opacity-40"
+            >
+              ↩️ פרסום מחדש לכל הכיתה
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={onUnpublish}
+              title="המשימה תוסר מהתלמידים; העבודה שלהם נשמרת"
+              className="rounded-full border border-[color:var(--danger)]/50 px-4 py-2 text-xs font-bold text-[color:var(--danger)] transition hover:bg-[color:var(--danger)]/5 disabled:opacity-40"
+            >
+              🚫 ביטול ההקצאה לכל הכיתה
+            </button>
+          )}
         </div>
       </div>
 

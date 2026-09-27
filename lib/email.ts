@@ -27,6 +27,20 @@ export async function sendEmail(opts: {
   subject: string;
   html: string;
 }): Promise<boolean> {
+  // Hard rule (Rafael, 2026-09-27): the site never emails the teachers —
+  // the in-site bell is enough. Enforced here so no call site can slip one
+  // through.
+  const { roleForEmail } = await import("./roles");
+  if (roleForEmail(opts.to.toLowerCase()) === "teacher") {
+    console.log(`[email suppressed — teacher recipient] subject=${opts.subject}`);
+    return false;
+  }
+  // Local development never sends real email, even with a real key in
+  // .env.local. Production only.
+  if (process.env.NODE_ENV !== "production") {
+    console.log(`[email skipped — not production] to=${opts.to} subject=${opts.subject}`);
+    return false;
+  }
   const key = readEnvVar("RESEND_API_KEY");
   const from = readEnvVar("EMAIL_FROM") ?? "קדושים תהיו <noreply@kedoshim.local>";
   if (!key) {

@@ -60,29 +60,22 @@ export async function assignStudent(taskId: number, userId: number) {
   return { ok: true };
 }
 
-// Take the task off the class completely: the task row and everything
-// attached to it are deleted, and the content returns to the "publish"
-// dropdown on the dashboard. Student answers on it are lost — the UI asks
-// for confirmation when any work exists.
+// Cancel = the task disappears from every student, but NOTHING is deleted:
+// answers, progress, grades and reflections all stay, and "republish" brings
+// the task back exactly as it was. (The old version hard-deleted the task and
+// all student work — replaced 2026-09-27.)
 export async function unpublishTask(taskId: number) {
   if (!(await requireRealTeacher())) return { ok: false, error: "למורים בלבד." };
-  const client = db();
-  for (const table of [
-    "task_assignments",
-    "task_progress",
-    "task_answers",
-    "text_markings",
-    "grades",
-    "assist_log",
-    "reflections",
-  ]) {
-    await client.execute({ sql: `DELETE FROM ${table} WHERE task_id = ?`, args: [taskId] });
-  }
-  await client.execute({
-    sql: "UPDATE question_bank SET task_id = NULL WHERE task_id = ?",
-    args: [taskId],
-  });
-  await client.execute({ sql: "DELETE FROM tasks WHERE id = ?", args: [taskId] });
+  const { cancelTaskAssignment } = await import("@/lib/tasks");
+  await cancelTaskAssignment(taskId);
+  revalidate(taskId);
+  return { ok: true };
+}
+
+export async function republishTaskAction(taskId: number) {
+  if (!(await requireRealTeacher())) return { ok: false, error: "למורים בלבד." };
+  const { republishTask } = await import("@/lib/tasks");
+  await republishTask(taskId);
   revalidate(taskId);
   return { ok: true };
 }

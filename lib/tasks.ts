@@ -218,10 +218,15 @@ export async function getMarkings(taskId: number, userId: number) {
 
 // ---------- teacher side ----------
 
+// The class = approved, onboarded, not-blocked students only (accounts that
+// were never approved are managed in /dashboard/students).
 export async function allStudents() {
+  const { ensureApprovalColumns } = await import("./approval");
+  await ensureApprovalColumns();
   const res = await db().execute({
     sql: `SELECT id, email, full_name, class FROM users
           WHERE role = 'student' AND onboarded_at IS NOT NULL
+            AND approved_at IS NOT NULL AND blocked_at IS NULL
           ORDER BY class, full_name`,
     args: [],
   });
@@ -261,6 +266,7 @@ export async function unassignedStudents(taskId: number) {
   const res = await db().execute({
     sql: `SELECT u.id, u.full_name, u.email, u.class FROM users u
           WHERE u.role = 'student' AND u.onboarded_at IS NOT NULL
+            AND u.approved_at IS NOT NULL AND u.blocked_at IS NULL
             AND NOT EXISTS (SELECT 1 FROM task_assignments a WHERE a.task_id = ? AND a.user_id = u.id)
           ORDER BY u.class, u.full_name`,
     args: [taskId],
@@ -311,3 +317,74 @@ export async function taskRoster(taskId: number) {
     };
   });
 }
+
+// ---------- task management: due-date changes and cancellation ----------
+
+// Cancellations live in a small marker table created lazily on first use,
+// so the feature ships without a manual migration run against production
+// (the canonical DDL is also recorded in migrations/0006_task_cancellations.sql
+// for fresh databases).
+let cancellationsReady = false;
+export async function ensureCancellationsTable() {
+  if (cancellationsReady) return;
+  await db().execute(
+    `CREATE TABLE IF NOT EXISTS task_cancellations (
+       task_id INTEGER PRIMARY KEY REFERENCES tasks(id),
+       cancelled_at INTEGER NOT NULL
+     )`
+  );
+  cancellationsReady = true;
+}
+
+export async function isTaskCancelled(taskId: number): Promise<boolean> {
+  await ensureCancellationsTable();
+  const res = await db().execute({
+    sql: "SELECT 1 FROM task_cancellations WHERE task_id = ?",
+    args: [taskId],
+  });
+  return res.rows.length > 0;
+}
+
+// Cancel = remove the task from every student (their saved work stays
+// untouched) and mark it so late-joiner auto-assignment skips it.
+export async function cancelTaskAssignment(taskId: number) {
+  await ensureCancellationsTable();
+  await db().execute({
+    sql: "INSERT OR IGNORE INTO task_cancellations (task_id, cancelled_at) VALUES (?, ?)",
+    args: [taskId, now()],
+  });
+  await db().execute({
+    sql: "DELETE FROM task_assignments WHERE task_id = ?",
+    args: [taskId],
+  });
+}
+
+// Republish = clear the mark and assign every onboarded student again.
+export async function republishTask(taskId: number) {
+  await ensureCancellationsTable();
+  await db().execute({
+    sql: "DELETE FROM task_cancellations WHERE task_id = ?",
+    args: [taskId],
+  });
+  const students = await db().execute({
+    sql: `SELECT id FROM users WHERE role = 'student' AND onboarded_at IS NOT NULL
+            AND approved_at IS NOT NULL AND blocked_at IS NULL`,
+    args: [],
+  });
+  const t = now();
+  for (const r of students.rows) {
+    await db().execute({
+      sql: `INSERT OR IGNORE INTO task_assignments (task_id, user_id, assigned_at)
+            VALUES (?, ?, ?)`,
+      args: [taskId, Number(r.id), t],
+    });
+  }
+}
+
+export async function updateTaskDueDate(taskId: number, dueAt: number) {
+  await db().execute({
+    sql: "UPDATE tasks SET due_at = ? WHERE id = ?",
+    args: [dueAt, taskId],
+  });
+}
+
