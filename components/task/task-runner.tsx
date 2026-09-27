@@ -11,6 +11,9 @@ import type {
 } from "@/content/tasks/types";
 import { DECODE_STAGES, isSimple, stagesFor, stagesDone } from "@/content/tasks/registry";
 import TaskArt from "./task-art";
+import WorksheetEditor from "./worksheet-editor";
+import type { WorksheetEdits } from "@/lib/content-overrides";
+import type { TaskSection } from "@/content/tasks/types";
 import {
   NARRATION_CREDIT,
   getVerseAudioContext,
@@ -71,6 +74,10 @@ interface Props {
   submitted: boolean;
   dueAt: number;
   totalUnits: number;
+  // teacher outside student mode: in-place worksheet editing (hide / reword /
+  // add questions). `original` = the file's sections, so hidden ones can be
+  // restored; `edits` = what is currently saved.
+  editable?: { edits: WorksheetEdits; original: TaskSection[] } | null;
 }
 
 type MarkKind = "leitwort" | "hard" | "question";
@@ -95,6 +102,7 @@ export default function TaskRunner({
   submitted: initialSubmitted,
   dueAt,
   totalUnits,
+  editable = null,
 }: Props) {
   const [answers, setAnswers] = useState<Record<string, string>>(initialAnswers);
   const [markings, setMarkings] = useState<Marking[]>(initialMarkings);
@@ -107,6 +115,8 @@ export default function TaskRunner({
   // Highest stage ever reached — navigating back never re-locks later stages.
   const [maxStage, setMaxStage] = useState(startStage);
   const [submitted, setSubmitted] = useState(initialSubmitted);
+  // which worksheet section the teacher is editing in place (teacher only)
+  const [editingSection, setEditingSection] = useState<string | null>(null);
   const [workSeconds, setWorkSeconds] = useState(initialWorkSeconds);
   const [clock, setClock] = useState("");
   const [menu, setMenu] = useState<WordMenuState | null>(null);
@@ -824,7 +834,29 @@ export default function TaskRunner({
                     ⏳ ~{section.minutes} דק׳
                   </span>
                 )}
+                {editable && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditingSection((k) => (k === section.key ? null : section.key))
+                    }
+                    className="ms-auto rounded-full border border-dashed border-[color:var(--primary)]/40 px-3 py-1 text-[11px] font-bold text-[color:var(--primary)]/75 transition hover:border-[color:var(--accent)] hover:text-[color:var(--accent)]"
+                  >
+                    ✏️ {editingSection === section.key ? "סגירת העריכה" : "עריכת השאלות (למורה)"}
+                  </button>
+                )}
               </div>
+              {editable && editingSection === section.key && (
+                <div className="mb-5">
+                  <WorksheetEditor
+                    contentRef={content.ref}
+                    sections={editable.original}
+                    onlySection={section.key}
+                    edits={editable.edits}
+                    onClose={() => setEditingSection(null)}
+                  />
+                </div>
+              )}
               <div className="space-y-5">
                 {section.blocks.map((block) => (
                   <BlockView

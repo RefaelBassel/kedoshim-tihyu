@@ -31,7 +31,11 @@ export async function POST(req: Request) {
 
   const task = await getTask(taskId);
   if (!task) return NextResponse.json({ error: "משימה לא נמצאה." }, { status: 404 });
-  const reg = getTaskContent(task.content_ref);
+  const baseReg = getTaskContent(task.content_ref);
+  const { effectiveContent } = await import("@/lib/content-overrides");
+  const reg = baseReg
+    ? { ...baseReg, content: await effectiveContent(baseReg.content) }
+    : null;
   const answers = await getAnswers(taskId, studentId);
   const markings = await getMarkings(taskId, studentId);
   const studentRow = await db().execute({

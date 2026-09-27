@@ -40,8 +40,18 @@ export default async function TaskPage({
     redirect("/tasks");
   }
 
-  const reg = getTaskContent(task.content_ref);
-  if (!reg) notFound();
+  const baseReg = getTaskContent(task.content_ref);
+  if (!baseReg) notFound();
+  // file defaults + the teacher's in-place edits (hidden / reworded / added
+  // questions); the teacher outside student mode also gets the editor
+  const { getOverrides, applyOverrides, EMPTY_EDITS } = await import("@/lib/content-overrides");
+  const overrides = await getOverrides(baseReg.content.ref);
+  const reg = { ...baseReg, content: applyOverrides(baseReg.content, overrides) };
+  const studentMode = isTeacher ? await isStudentMode() : false;
+  const canEditContent = isTeacher && !studentMode;
+  const editable = canEditContent
+    ? { edits: overrides.worksheet ?? EMPTY_EDITS, original: baseReg.content.sections }
+    : null;
 
   // First open starts the work stopwatch (students only, not guests).
   if (!isTeacher && !guest) {
@@ -66,7 +76,7 @@ export default async function TaskPage({
       <TopNav />
       {/* teacher tooling stays hidden in student mode — the whole point of
           that mode is experiencing the site exactly as a student does */}
-      {isTeacher && !(await isStudentMode()) && <ClassPulseDrawer taskId={taskId} />}
+      {canEditContent && <ClassPulseDrawer taskId={taskId} />}
       {!guest && (
         <ReflectionDrawer
           taskId={taskId}
@@ -111,6 +121,7 @@ export default async function TaskPage({
           submitted={Boolean(progress?.submitted_at)}
           dueAt={task.due_at}
           totalUnits={countTaskUnits(reg)}
+          editable={editable}
         />
       </main>
     </>

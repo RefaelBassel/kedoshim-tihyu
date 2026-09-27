@@ -28,10 +28,13 @@ export async function GET(
   if (!task) {
     return NextResponse.json({ error: "המשימה לא נמצאה." }, { status: 404 });
   }
-  const reg = getTaskContent(task.content_ref);
-  if (!reg) {
+  const baseReg = getTaskContent(task.content_ref);
+  if (!baseReg) {
     return NextResponse.json({ error: "תוכן המשימה לא נמצא." }, { status: 404 });
   }
+  // the worksheet as the class actually sees it (teacher edits applied)
+  const { effectiveContent } = await import("@/lib/content-overrides");
+  const reg = { ...baseReg, content: await effectiveContent(baseReg.content) };
 
   // the equal-weight unit list, in reading order
   const units: { key: string; label: string; part: "a" | "b" }[] = [];

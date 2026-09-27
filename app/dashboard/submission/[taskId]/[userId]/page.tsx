@@ -38,8 +38,11 @@ export default async function SubmissionPage({
   const studentId = Number(rawUser);
   const task = await getTask(taskId);
   if (!task) notFound();
-  const reg = getTaskContent(task.content_ref);
-  if (!reg) notFound();
+  const baseReg = getTaskContent(task.content_ref);
+  if (!baseReg) notFound();
+  // the worksheet as the student saw it (teacher edits applied)
+  const { effectiveContent } = await import("@/lib/content-overrides");
+  const reg = { ...baseReg, content: await effectiveContent(baseReg.content) };
 
   const studentRes = await db().execute({
     sql: "SELECT full_name, email FROM users WHERE id = ?",

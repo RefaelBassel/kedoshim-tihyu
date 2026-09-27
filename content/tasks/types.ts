@@ -151,6 +151,27 @@ export interface TaskContent {
   // How Part A / Part B are labeled in the progress rail and headers.
   partA?: { title: string; skill: string };
   partB?: { title: string; subtitle: string; skill: string };
+  // ---- the debate layer (Reut, 2026-09-27) — defaults the teacher edits in place ----
+  // The unit's discussion question: debated in class at the START of the
+  // next lesson, by students who completed this task. Tied to the verses so
+  // that studying them is what makes the debate possible.
+  discussion?: DiscussionQuestion;
+  // The 5-minute review deck for the next lesson's opening.
+  review?: ReviewDeck;
   // Part B: the worksheet.
   sections: TaskSection[];
+}
+
+export interface DiscussionQuestion {
+  question: string;
+  // one line for the teacher only: what in the verses the sides can lean on
+  teacherNote?: string;
+}
+
+export interface ReviewDeck {
+  // 2-4 short points, one slide each — deliberately terse: a reminder for
+  // those who studied, never a substitute for studying
+  points: string[];
+  // the skill practised in this unit, one line (optional slide)
+  skill?: string;
 }
