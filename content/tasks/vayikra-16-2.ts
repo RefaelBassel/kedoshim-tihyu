@@ -212,6 +212,44 @@ export const vayikra16b: TaskContent = {
         },
       ],
     },
+    // The argument skill (brought forward from 10th grade): position, reason, grounding — the written warm-up for the class debate.
+    {
+      key: "argument",
+      title: "בניית טיעון — לקראת הדיון",
+      minutes: 8,
+      blocks: [
+        {
+          type: "intro",
+          key: "argument-intro",
+          body: "בשיעור הבא נפתח בדיון כיתתי על השאלה שלמטה. כאן אתם בונים את העמדה שלכם בכתב, בשלושה חלקים — טענה, נימוק וביסוס מהפסוקים — ומי שמסיים את המשימה מקבל כרטיס כניסה לדיון.",
+        },
+        {
+          type: "question",
+          key: "q-argument",
+          icon: "argument",
+          label: "מיומנות הטיעון",
+          prompt:
+            "בפסוק י״ז אף אדם לא נמצא באוהל מועד בזמן שאהרן מכפר — הוא לבד, בלי עדים, ומכפר על עצמו, על ביתו ועל כל הקהל. האם נכון שכפרה של ציבור שלם נעשית על ידי אדם אחד לבדו, או שציבור צריך לראות במו עיניו מה נעשה בשמו? — מה העמדה שלך?",
+          helper: "טענה = מה אני חושב/ת · נימוק = למה · ביסוס = איפה זה כתוב בפסוקים (ציטוט + מספר פסוק)",
+          fields: [
+            { key: "claim", label: "הטענה שלי" },
+            { key: "reason", label: "הנימוק" },
+            { key: "basis", label: "הביסוס מהפסוקים (ציטוט + פסוק)" },
+          ],
+          helpVerses: { ref: "פרק ט״ז, פסוקים י״א–י״ט", verses: verses(11, 19) },
+        },
+        {
+          type: "question",
+          key: "q-counter",
+          icon: "argument",
+          label: "מיומנות הטיעון",
+          prompt:
+            "מה יגיד מי שחושב הפוך? כתבו את הטענה הכי חזקה של הצד השני — ואיפה בפסוקים היא נשענת.",
+          minWords: 12,
+          helpVerses: { ref: "פרק ט״ז, פסוקים י״א–י״ט", verses: verses(11, 19) },
+        },
+      ],
+    },
   ],
 };
 
