@@ -6,7 +6,7 @@ import { getTaskContent, positionLabel } from "@/content/tasks/registry";
 import { getOverrides, applyOverrides, EMPTY_EDITS } from "@/lib/content-overrides";
 import { db } from "@/lib/db";
 import WorksheetEditor from "@/components/task/worksheet-editor";
-import { DiscussionEditor, ReviewEditor } from "@/components/dashboard/unit-text-editors";
+import { ReviewEditor } from "@/components/dashboard/unit-text-editors";
 
 // One unit, all its teacher-owned content on one page: the worksheet
 // editor (every section), the discussion question and the review deck.
@@ -49,24 +49,18 @@ export default async function ContentEditPage({
 
         <section className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-5">
           <h2 className="font-display text-lg font-extrabold text-[color:var(--primary)]">
-            💬 שאלת הדיון של היחידה
-            {ov.discussion && <EditedTag />}
+            🔁 מצגת החזרה ו-💬 שאלת הדיון
+            {(ov.review || ov.discussion) && <EditedTag />}
           </h2>
           <p className="mb-3 text-xs text-[color:var(--foreground)]/60">
-            נדונה בפתיחת השיעור הבא, על הלוח, רק על ידי מי שסיימו את המשימה הזו.
+            נקודות החזרה (שקף לכל שורה), המיומנות, ושאלת הדיון שסוגרת את המצגת ועולה על לוח הדיון.
+            ידנית — או בבקשה מקלוד.
           </p>
-          <DiscussionEditor contentRef={ref} initial={content.discussion ?? null} />
-        </section>
-
-        <section className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-5">
-          <h2 className="font-display text-lg font-extrabold text-[color:var(--primary)]">
-            🔁 מצגת החזרה (5 דקות)
-            {ov.review && <EditedTag />}
-          </h2>
-          <p className="mb-3 text-xs text-[color:var(--foreground)]/60">
-            תזכורת תמציתית ליחידה — שקף לכל שורה.
-          </p>
-          <ReviewEditor contentRef={ref} initial={content.review ?? null} />
+          <ReviewEditor
+            contentRef={ref}
+            initial={content.review ?? null}
+            initialDiscussion={content.discussion ?? null}
+          />
         </section>
 
         <section>

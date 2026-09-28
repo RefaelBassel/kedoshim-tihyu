@@ -226,10 +226,15 @@ export default function ReviewDeckPlayer({
         <div className="flex-1 overflow-y-auto p-6">
           <div className="mx-auto max-w-2xl">
             <p className="mb-3 text-xs" style={{ color: `${GRAPE}99` }}>
-              השקף הראשון (כותרת) והאחרון (שאלת הדיון) נלקחים מהיחידה. כאן עורכים את נקודות החזרה
-              ואת שורת המיומנות. שאלת הדיון עצמה נערכת בבקרת הדיון או במרכז התוכן.
+              השקף הראשון (כותרת ופרק) נלקח מהיחידה. כאן עורכים את כל השאר — נקודות החזרה, המיומנות
+              ושאלת הדיון שסוגרת את המצגת — ידנית, או בבקשה מקלוד.
             </p>
-            <ReviewEditor contentRef={contentRef} initial={review} onClose={() => setEditing(false)} />
+            <ReviewEditor
+              contentRef={contentRef}
+              initial={review}
+              initialDiscussion={discussion}
+              onClose={() => setEditing(false)}
+            />
           </div>
         </div>
       ) : (
