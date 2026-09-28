@@ -98,18 +98,55 @@ export async function stopPlan(day = todayIsrael()) {
   });
 }
 
-// Published tasks in curriculum order — the picker's options, plus a
-// sensible default: debate/review on the latest unit that has a successor,
-// study on the newest.
-export async function plannerOptions() {
-  const res = await db().execute({ sql: "SELECT id, content_ref, title FROM tasks", args: [] });
-  const tasks = res.rows
-    .map((r) => ({
-      id: Number(r.id),
-      ref: String(r.content_ref),
-      title: String(r.title),
-      position: positionLabel(String(r.content_ref)),
-    }))
-    .sort((a, b) => taskOrderIndex(a.ref) - taskOrderIndex(b.ref));
-  return tasks;
+// The journey: every unit in the library, in curriculum order, with what
+// the teacher needs at a glance — published? how much of the class has
+// completed it? was it debated? — so the lesson page is one screen.
+export interface UnitOverview {
+  ref: string;
+  title: string;
+  subtitle: string | null;
+  position: string | null;
+  taskId: number | null; // null = not published yet
+  assigned: number;
+  complete: number; // students who answered every worksheet question
+  discussed: number; // closed debates on it
+  discussionOpen: boolean;
+}
+
+export async function unitsOverview(): Promise<UnitOverview[]> {
+  const { TASK_REGISTRY } = await import("@/content/tasks/registry");
+  const { eligibilityFor, discussionsOf } = await import("./discussion");
+  const res = await db().execute({ sql: "SELECT id, content_ref FROM tasks", args: [] });
+  const taskByRef = new Map<string, number>();
+  for (const r of res.rows) taskByRef.set(String(r.content_ref), Number(r.id));
+  const refs = Object.keys(TASK_REGISTRY).sort((a, b) => taskOrderIndex(a) - taskOrderIndex(b));
+  const out: UnitOverview[] = [];
+  for (const ref of refs) {
+    const c = TASK_REGISTRY[ref].content;
+    const taskId = taskByRef.get(ref) ?? null;
+    let assigned = 0;
+    let complete = 0;
+    let discussed = 0;
+    let discussionOpen = false;
+    if (taskId != null) {
+      const elig = await eligibilityFor(taskId);
+      assigned = elig.length;
+      complete = elig.filter((e) => e.complete).length;
+      const ds = await discussionsOf(taskId);
+      discussed = ds.filter((d) => d.status === "closed" && d.turns > 0).length;
+      discussionOpen = ds.some((d) => d.status === "open" && (d.turns > 0 || d.notes > 0));
+    }
+    out.push({
+      ref,
+      title: c.title,
+      subtitle: c.subtitle ?? null,
+      position: positionLabel(ref),
+      taskId,
+      assigned,
+      complete,
+      discussed,
+      discussionOpen,
+    });
+  }
+  return out;
 }

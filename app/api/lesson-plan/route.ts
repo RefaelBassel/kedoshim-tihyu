@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireTeacher } from "@/lib/api-auth";
 import {
   getPlan,
-  plannerOptions,
+  unitsOverview,
   savePlan,
   setCurrent,
   stopPlan,
@@ -14,8 +14,8 @@ import {
 export async function GET() {
   const guard = await requireTeacher();
   if (!guard.ok) return guard.res;
-  const [plan, tasks] = await Promise.all([getPlan(), plannerOptions()]);
-  return NextResponse.json({ ok: true, plan, tasks });
+  const [plan, units] = await Promise.all([getPlan(), unitsOverview()]);
+  return NextResponse.json({ ok: true, plan, units });
 }
 
 export async function PUT(req: Request) {
