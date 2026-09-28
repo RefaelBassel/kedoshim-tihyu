@@ -45,13 +45,17 @@ export default async function TaskPage({
   if (!baseReg) notFound();
   // file defaults + the teacher's in-place edits (hidden / reworded / added
   // questions); the teacher outside student mode also gets the editor
-  const { getOverrides, applyOverrides, EMPTY_EDITS } = await import("@/lib/content-overrides");
+  const { getOverrides, applyOverrides, EMPTY_EDITS, EMPTY_UNIT } = await import("@/lib/content-overrides");
   const overrides = await getOverrides(baseReg.content.ref);
   const reg = { ...baseReg, content: applyOverrides(baseReg.content, overrides) };
   const studentMode = isTeacher ? await isStudentMode() : false;
   const canEditContent = isTeacher && !studentMode;
   const editable = canEditContent
-    ? { edits: overrides.worksheet ?? EMPTY_EDITS, original: baseReg.content.sections }
+    ? {
+        edits: overrides.worksheet ?? EMPTY_EDITS,
+        unit: overrides.unit ?? EMPTY_UNIT,
+        original: baseReg.content.sections,
+      }
     : null;
 
   // First open starts the work stopwatch (students only, not guests).

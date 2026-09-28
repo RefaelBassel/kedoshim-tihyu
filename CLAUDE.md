@@ -98,3 +98,15 @@ Only students who answered every worksheet question are eligible to speak (teach
 override). Teacher edits everything in place: worksheet questions (hide / reword / add),
 discussion, review — lib/content-overrides.ts, `/dashboard/content`. Rule from Rafael:
 a projected board never contains teacher input; the control is a separate page.
+
+## Lesson page, editability, Claude assist (28.9.2026)
+- `/dashboard/lesson` (nav: "מהלך השיעור") is ONE screen: today's plan as chips (add a block
+  from a unit row, reorder, ▶) + the journey (every unit, learned/debated status, completion,
+  the three tools on the row). Started plans drive `components/lesson-strip.tsx` on every
+  teacher page. State: lib/lesson-plan.ts (lesson_plans). Never put lesson tools under a task.
+- Everything textual on a unit is teacher-editable in place and on `/dashboard/content/[ref]`:
+  worksheet questions (hide/reword/add), section titles/minutes, intro/case/source/art texts,
+  unit title/subtitle/readingIntro (`unit` override), discussion question, review deck.
+- The review deck editor can ask Claude for a revision (`/api/content-assist`, forced tool use);
+  Claude only proposes — nothing is saved until the teacher presses save.
+- The unit's discussion question is the single source of truth (deck, hub, debate board).

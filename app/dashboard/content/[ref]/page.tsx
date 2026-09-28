@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import { redirect, notFound } from "next/navigation";
 import PageShell from "@/components/page-shell";
 import { getTaskContent, positionLabel } from "@/content/tasks/registry";
-import { getOverrides, applyOverrides, EMPTY_EDITS } from "@/lib/content-overrides";
+import { getOverrides, applyOverrides, EMPTY_EDITS, EMPTY_UNIT } from "@/lib/content-overrides";
 import { db } from "@/lib/db";
 import WorksheetEditor from "@/components/task/worksheet-editor";
 import { ReviewEditor } from "@/components/dashboard/unit-text-editors";
@@ -65,13 +65,19 @@ export default async function ContentEditPage({
 
         <section>
           <h2 className="mb-2 font-display text-lg font-extrabold text-[color:var(--primary)]">
-            📝 שאלות דף העבודה
-            {ov.worksheet && <EditedTag />}
+            📝 דף העבודה — כותרות, טקסטים ושאלות
+            {(ov.worksheet || ov.unit) && <EditedTag />}
           </h2>
           <WorksheetEditor
             contentRef={ref}
             sections={reg.content.sections}
             edits={ov.worksheet ?? EMPTY_EDITS}
+            unitEdits={ov.unit ?? EMPTY_UNIT}
+            unitMeta={{
+              title: reg.content.title,
+              subtitle: reg.content.subtitle,
+              readingIntro: reg.content.readingIntro,
+            }}
           />
         </section>
       </div>

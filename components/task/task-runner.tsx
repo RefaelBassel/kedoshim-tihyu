@@ -12,7 +12,7 @@ import type {
 import { DECODE_STAGES, isSimple, stagesFor, stagesDone } from "@/content/tasks/registry";
 import TaskArt from "./task-art";
 import WorksheetEditor from "./worksheet-editor";
-import type { WorksheetEdits } from "@/lib/content-overrides";
+import type { WorksheetEdits, UnitEdits } from "@/lib/content-overrides";
 import type { TaskSection } from "@/content/tasks/types";
 import {
   NARRATION_CREDIT,
@@ -78,7 +78,7 @@ interface Props {
   // teacher outside student mode: in-place worksheet editing (hide / reword /
   // add questions). `original` = the file's sections, so hidden ones can be
   // restored; `edits` = what is currently saved.
-  editable?: { edits: WorksheetEdits; original: TaskSection[] } | null;
+  editable?: { edits: WorksheetEdits; unit: UnitEdits; original: TaskSection[] } | null;
 }
 
 type MarkKind = "leitwort" | "hard" | "question";
@@ -1028,6 +1028,7 @@ export default function TaskRunner({
                     sections={editable.original}
                     onlySection={section.key}
                     edits={editable.edits}
+                    unitEdits={editable.unit}
                     onClose={() => setEditingSection(null)}
                   />
                 </div>
