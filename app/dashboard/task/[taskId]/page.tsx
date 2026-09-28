@@ -4,10 +4,9 @@ import { redirect, notFound } from "next/navigation";
 import PageShell from "@/components/page-shell";
 import ClassPulseDrawer from "@/components/class-pulse-drawer";
 import TaskAdminPanel, { UnassignButton } from "@/components/dashboard/task-admin";
-import LessonFlow from "@/components/dashboard/lesson-flow";
 import PrintLinks from "@/components/task/print-links";
 import { getTask, taskRoster, unassignedStudents, STATUS_META, isTaskCancelled } from "@/lib/tasks";
-import { positionLabel, taskOrderIndex } from "@/content/tasks/registry";
+import { positionLabel } from "@/content/tasks/registry";
 import { formatHebDateTime, formatWorkTime } from "@/lib/hebrew";
 import {
   updateDueDate,
@@ -46,15 +45,6 @@ export default async function DashboardTaskPage({
   };
 
   const cancelled = await isTaskCancelled(task.id);
-  // the previous unit in curriculum order (among published tasks) — its
-  // question is what this lesson's debate is about
-  const { db } = await import("@/lib/db");
-  const allTasks = await db().execute({ sql: "SELECT id, content_ref, title FROM tasks", args: [] });
-  const ordered = allTasks.rows
-    .map((r) => ({ id: Number(r.id), ref: String(r.content_ref), title: String(r.title) }))
-    .sort((a, b) => taskOrderIndex(a.ref) - taskOrderIndex(b.ref));
-  const idx = ordered.findIndex((t) => t.id === task.id);
-  const prev = idx > 0 ? ordered[idx - 1] : null;
 
   return (
     <PageShell
@@ -62,7 +52,6 @@ export default async function DashboardTaskPage({
       subtitle={`${positionLabel(task.content_ref) ? positionLabel(task.content_ref) + " · " : ""}להגשה עד ${formatHebDateTime(task.due_at)} · ${roster.length} מוקצים`}
     >
       <ClassPulseDrawer taskId={task.id} />
-      <LessonFlow taskId={task.id} prevTaskId={prev?.id ?? null} prevTitle={prev?.title ?? null} />
       {cancelled && (
         <div className="mx-auto mb-4 max-w-3xl rounded-2xl border-2 border-[color:var(--danger)]/40 bg-[color:var(--danger)]/5 px-5 py-3 text-sm">
           <b className="text-[color:var(--danger)]">🚫 המשימה מבוטלת</b> — התלמידים לא רואים

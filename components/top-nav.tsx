@@ -50,6 +50,7 @@ export default async function TopNav() {
     { href: "/messages", label: "קשר" },
   ];
   if (isTeacher) {
+    links.push({ href: "/dashboard/lesson", label: "מהלך השיעור" });
     links.push({ href: "/dashboard", label: "דשבורד מורה" });
   }
 

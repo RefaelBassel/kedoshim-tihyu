@@ -130,6 +130,20 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
+      {/* today's lesson lives on its own page — one place, not under a task */}
+      <Link
+        href="/dashboard/lesson"
+        className="mx-auto mb-8 block max-w-3xl rounded-2xl border-2 border-[color:var(--accent)]/60 bg-[color:var(--card)] p-5 transition hover:border-[color:var(--accent)]"
+      >
+        <p className="font-display text-xl font-extrabold text-[color:var(--primary)]">
+          🧭 מהלך השיעור — לתכנן ולהפעיל ←
+        </p>
+        <p className="mt-1 text-sm text-[color:var(--foreground)]/70">
+          חזרה · דיון · לימוד — בסדר שאת בוחרת, על היחידות שאת בוחרת. ▶ ורצועה בראש כל עמוד
+          מלווה אותך.
+        </p>
+      </Link>
+
       {/* stats */}
       <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Stat label="תלמידים ותלמידות" value={students.length} emoji="👩‍🎓" />
