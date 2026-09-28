@@ -1,7 +1,7 @@
 import { db } from "./db";
 import { getTask } from "./tasks";
 import { getTaskContent } from "@/content/tasks/registry";
-import { effectiveContent } from "./content-overrides";
+import { effectiveContent, getOverrides, setOverride } from "./content-overrides";
 import type { QuestionBlock } from "@/content/tasks/types";
 
 // The classroom debate (Reut, 2026-09-27). A lesson opens with a timed
@@ -256,7 +256,10 @@ export async function getDiscussionState(discussionId: number): Promise<Discussi
     taskId,
     taskTitle: content?.title ?? task?.title ?? "",
     bookRef: content?.bookRef ?? "",
-    question: String(row.question),
+    // ONE source of truth: the unit's (teacher-edited) discussion question —
+    // the same text the review deck and the content hub show. The row copy
+    // is only a fallback for units without a question in their content.
+    question: content?.discussion?.question || String(row.question),
     teacherNote: content?.discussion?.teacherNote ?? null,
     status: row.status === "closed" ? "closed" : "open",
     secondsPerSpeaker: Number(row.seconds_per_speaker),
@@ -352,12 +355,22 @@ export async function setSeconds(discussionId: number, seconds: number) {
   });
 }
 
-export async function setQuestion(discussionId: number, question: string) {
+// Editing the question from the control page edits the UNIT's question (the
+// content override), so the deck, the hub and the board all agree.
+export async function setQuestion(discussionId: number, question: string, teacherId: number) {
   await ensureDiscussionTables();
+  const q = question.slice(0, 800).trim();
   await db().execute({
     sql: "UPDATE discussions SET question = ? WHERE id = ?",
-    args: [question.slice(0, 800), discussionId],
+    args: [q, discussionId],
   });
+  const d = await db().execute({ sql: "SELECT task_id FROM discussions WHERE id = ?", args: [discussionId] });
+  const task = d.rows[0] ? await getTask(Number(d.rows[0].task_id)) : null;
+  if (!task || !q) return;
+  const ov = await getOverrides(task.content_ref);
+  const baseReg = getTaskContent(task.content_ref);
+  const note = ov.discussion?.teacherNote ?? baseReg?.content.discussion?.teacherNote;
+  await setOverride(task.content_ref, "discussion", note ? { question: q, teacherNote: note } : { question: q }, teacherId);
 }
 
 export async function closeDiscussion(discussionId: number) {

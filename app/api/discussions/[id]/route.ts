@@ -63,7 +63,7 @@ export async function POST(
       await setSeconds(id, Number(body.seconds));
       break;
     case "question":
-      await setQuestion(id, String(body.question ?? ""));
+      await setQuestion(id, String(body.question ?? ""), guard.userId);
       break;
     case "refresh":
       await refreshEligibility(id);
