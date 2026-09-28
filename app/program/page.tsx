@@ -2,10 +2,14 @@ import Link from "next/link";
 import PageShell from "@/components/page-shell";
 
 // The annual program — the topics/chapters table from the teacher's planning
-// document (ויקרא + שמואל ב׳), the six skills of the program, and the fixed
-// lesson routine. Order of study: ויקרא ט״ז first (adjacent to יום הכיפורים
-// in the calendar), then the units in order. Which skill enters which topic
-// is decided by the teacher as the year unfolds — nothing here is invented.
+// document (ויקרא + שמואל ב׳), the skills of the program, and the lesson
+// flow. Order of study: ויקרא ט״ז first (adjacent to יום הכיפורים in the
+// calendar), then the units in order. Which skill enters which topic is
+// decided by the teacher as the year unfolds — nothing here is invented.
+// The lesson flow (Reut, 27.9.2026): three building blocks — a short review
+// deck, a timed class debate on the previous unit's question (only for those
+// who completed it), and study of the next unit — in the order the teacher
+// chooses that day. The class's strength is debate; the site serves it.
 const SKILLS = [
   {
     emoji: "📖",
@@ -43,6 +47,12 @@ const SKILLS = [
     body: "לסמן מה לא מובן, ולנסות להבין מהפסוק ומהמילים שסביבו — לפני שמבקשים פירוש.",
     where: "באתר · ייכנס בהמשך",
   },
+  {
+    emoji: "⚖️",
+    title: "בניית טיעון",
+    body: "טענה · נימוק · ביסוס מהפסוקים — ומה יגיד הצד השני. כל יחידה נסגרת בבניית עמדה בכתב על שאלת הדיון שלה, וזו הכניסה לדיון הכיתתי בשיעור הבא.",
+    where: "באתר + בדיון בכיתה",
+  },
 ];
 
 // ויקרא — from the planning table (lesson counts intentionally omitted).
@@ -66,7 +76,12 @@ const SHMUEL = [
   { n: "5", topic: "סוף ימיו של דוד וסיכום", chapters: "כ״ד", when: "סיוון" },
 ];
 
-const ROUTINE = ["קריאה משותפת", "מיומנות השיעור", "עבודה עצמית באתר", "סיכום ודיון"];
+// The three building blocks of a lesson — in the order the teacher chooses.
+const FLOW = [
+  { emoji: "🔁", title: "חזרה", minutes: "5 דק׳", body: "מצגת תמציתית על היחידה הקודמת — תזכורת למי שלמד, לא תחליף ללימוד." },
+  { emoji: "💬", title: "דיון", minutes: "15 דק׳", body: "דיבייט על השאלה של היחידה הקודמת, עם שעון לכל דובר/ת ו״קיר״ משפטים על הלוח. משתתפים רק מי שענו על כל שאלות היחידה." },
+  { emoji: "📖", title: "לימוד", minutes: "20 דק׳", body: "היחידה הבאה באתר — קריאה, שאלות, ובסוף בניית העמדה לדיון הבא." },
+];
 
 export default function ProgramPage() {
   return (
@@ -96,7 +111,7 @@ export default function ProgramPage() {
 
         {/* ===== skills ===== */}
         <section>
-          <SectionTitle emoji="🎯" title="שש המיומנויות של התוכנית" />
+          <SectionTitle emoji="🎯" title="המיומנויות של התוכנית" />
           <div className="grid gap-4 sm:grid-cols-2">
             {SKILLS.map((s) => (
               <div
@@ -117,31 +132,43 @@ export default function ProgramPage() {
           </div>
           <p className="mt-3 text-xs leading-6 text-[color:var(--foreground)]/55">
             איזו מיומנות נכנסת באיזה נושא — נקבע לאורך השנה. המשימות הראשונות
-            (ויקרא ט״ז) מתרגלות הבנה, התמצאות, טעמים והאזנה בלבד.
+            (ויקרא ט״ז) מתרגלות הבנה, התמצאות, טעמים והאזנה — ובניית טיעון לקראת
+            הדיון. בכל יחידה שתי שאלות על מיומנות האוריינות שנבחרה לה.
           </p>
         </section>
 
-        {/* ===== routine ===== */}
+        {/* ===== lesson flow ===== */}
         <section>
-          <SectionTitle emoji="🔁" title="שגרת השיעור" />
-          <div className="flex flex-wrap items-center gap-2">
-            {ROUTINE.map((r, i) => (
-              <span key={r} className="flex items-center gap-2">
-                <span className="rounded-full border border-[color:var(--border)] bg-[color:var(--card)] px-4 py-1.5 text-sm font-semibold text-[color:var(--primary)]">
-                  {i + 1}. {r}
-                </span>
-                {i < ROUTINE.length - 1 && (
-                  <span aria-hidden className="text-[color:var(--accent)]">←</span>
-                )}
-              </span>
+          <SectionTitle emoji="🧭" title="מהלך השיעור — שלושה חלקים" />
+          <div className="grid gap-3 sm:grid-cols-3">
+            {FLOW.map((f) => (
+              <div
+                key={f.title}
+                className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-4"
+              >
+                <div className="mb-1 flex items-center justify-between">
+                  <p className="font-display text-lg font-extrabold text-[color:var(--primary)]">
+                    {f.emoji} {f.title}
+                  </p>
+                  <span className="rounded-full bg-[color:var(--accent)]/10 px-2 py-0.5 text-[10px] font-bold text-[color:var(--accent)]">
+                    ~{f.minutes}
+                  </span>
+                </div>
+                <p className="text-xs leading-6 text-[color:var(--foreground)]/75">{f.body}</p>
+              </div>
             ))}
+          </div>
+          <p className="mt-3 text-xs leading-6 text-[color:var(--foreground)]/60">
+            הסדר משתנה משיעור לשיעור לפי מה שהמורה בוחרת: שיעור כפול יכול לכלול שני
+            דיונים, והשיעור שאחריו נפתח בלימוד. מה שקבוע: הדיון הוא תמיד על יחידה
+            שכבר למדנו — ומי שסיים/ה אותה מדבר/ת.{" "}
             <Link
               href="/rules"
-              className="ms-2 text-xs font-semibold text-[color:var(--accent)] underline-offset-2 hover:underline"
+              className="font-semibold text-[color:var(--accent)] underline-offset-2 hover:underline"
             >
               לכללי השיעור המלאים ←
             </Link>
-          </div>
+          </p>
         </section>
 
         {/* ===== Vayikra ===== */}

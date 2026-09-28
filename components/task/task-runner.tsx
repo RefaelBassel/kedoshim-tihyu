@@ -395,6 +395,26 @@ export default function TaskRunner({
   }, [answers, stage, content]);
   const progressPct = Math.min(100, Math.round((answeredCount / totalUnits) * 100));
 
+  // 🎫 the debate ticket — the same rule the teacher's control page applies:
+  // every worksheet answer field filled (stages and the check do not count).
+  const ticket = useMemo(() => {
+    let total = 0;
+    let done = 0;
+    for (const section of content.sections) {
+      for (const block of section.blocks) {
+        if (block.type !== "question") continue;
+        const keys = block.fields
+          ? block.fields.map((f) => `${block.key}:${f.key}`)
+          : [block.key];
+        for (const k of keys) {
+          total += 1;
+          if ((answers[k] ?? "").trim().length >= 2) done += 1;
+        }
+      }
+    }
+    return { done, total, ok: total > 0 && done >= total };
+  }, [answers, content]);
+
   const saveState = useCallback(
     (nextStage?: number) => {
       fetch(`/api/tasks/${taskId}/state`, {
@@ -1030,6 +1050,38 @@ export default function TaskRunner({
               </div>
             </section>
           ))}
+
+          {/* the debate ticket — always visible in Part B, so every student
+              knows exactly where they stand before the next lesson's debate */}
+          {ticket.total > 0 && (
+            <div
+              className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border-2 px-5 py-3 ${
+                ticket.ok
+                  ? "border-[color:var(--success)]/50 bg-[color:var(--success)]/8"
+                  : "border-dashed border-[color:var(--border)] bg-[color:var(--card)]"
+              }`}
+            >
+              <div>
+                <p className="font-display text-base font-extrabold text-[color:var(--primary)]">
+                  🎫 כרטיס כניסה לדיון
+                </p>
+                <p className="text-xs text-[color:var(--foreground)]/70">
+                  {ticket.ok
+                    ? "ענית על כל השאלות של היחידה — בדיון הבא הבמה גם שלך."
+                    : `עוד ${ticket.total - ticket.done} מתוך ${ticket.total} שאלות — ומקבלים כרטיס לדיון על היחידה הזו.`}
+                </p>
+              </div>
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-bold ${
+                  ticket.ok
+                    ? "bg-[color:var(--success)] text-white"
+                    : "bg-[color:var(--background)] text-[color:var(--primary)]/60"
+                }`}
+              >
+                {ticket.done}/{ticket.total}
+              </span>
+            </div>
+          )}
 
           {/* submit */}
           {!submitted && (

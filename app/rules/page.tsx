@@ -1,7 +1,8 @@
 import PageShell from "@/components/page-shell";
 
-// "כללי השיעור שלנו" — the six class rules and the fixed lesson routine,
-// exactly as set by the teacher (content/source: the project document).
+// "כללי השיעור שלנו" — the six class rules exactly as set by the teacher
+// (content/source: the project document), and the lesson flow as redesigned
+// with her on 27.9.2026: review → debate → study, in the order she chooses.
 const RULES = [
   {
     emoji: "⏰",
@@ -35,26 +36,21 @@ const RULES = [
   },
 ];
 
-const ROUTINE = [
+const FLOW = [
   {
-    emoji: "📖",
-    title: "קריאה משותפת",
-    body: "המורה קוראת בתנ״ך הפיזי, ואז קוראים יחד. המחשבים עדיין סגורים.",
-  },
-  {
-    emoji: "🧭",
-    title: "מיומנות השיעור",
-    body: "איך מפענחים מילים, טעמים, פרקים ופסוקים — התרגול הפיזי עם התנ״ך.",
-  },
-  {
-    emoji: "💻",
-    title: "עבודה עצמית באתר",
-    body: "זמן מחשבים מוגדר: המשימה השוטפת, עם ההקראה ועם עזרת קלוד — ״עושים לבד, אבל לא פוגשים קיר״.",
+    emoji: "🔁",
+    title: "חזרה — 5 דקות",
+    body: "המורה מקרינה מצגת קצרה על היחידה הקודמת. זו תזכורת למי שלמד — לא דרך להיכנס לדיון בלי ללמוד.",
   },
   {
     emoji: "💬",
-    title: "סיכום ודיון",
-    body: "סוגרים את המחשבים, מסכמים יחד, ורגע של רפלקציה.",
+    title: "דיון — 15 דקות",
+    body: "דיבייט על שאלת היחידה הקודמת. על הלוח: השאלה, הדוברים, שעון לכל דובר/ת, וקיר שעליו המורה רושמת משפטי מפתח. כרטיס הכניסה לדיון: ענו על כל השאלות של היחידה, כולל בניית הטיעון — המורה רואה את זה באתר ומאשרת.",
+  },
+  {
+    emoji: "📖",
+    title: "לימוד — 20 דקות",
+    body: "קריאה בתנ״ך הפיזי עם המורה, ואז זמן מחשבים מוגדר: היחידה הבאה באתר, עם ההקראה ועם עזרת קלוד — ״עושים לבד, אבל לא פוגשים קיר״. בסוף היחידה: טענה, נימוק וביסוס לדיון הבא.",
   },
 ];
 
@@ -62,7 +58,7 @@ export default function RulesPage() {
   return (
     <PageShell
       title="כללי השיעור שלנו"
-      subtitle="שישה כללים ושגרה קבועה — כדי שכולנו נוכל ללמוד"
+      subtitle="שישה כללים ומהלך שיעור ברור — כדי שכולנו נוכל ללמוד ולהתווכח"
     >
       <div className="mx-auto max-w-4xl space-y-10">
         <section>
@@ -93,10 +89,10 @@ export default function RulesPage() {
 
         <section>
           <h2 className="mb-4 flex items-center gap-2 font-display text-xl font-bold text-[color:var(--primary)]">
-            <span>🔁</span> שגרת השיעור הקבועה
+            <span>🧭</span> מהלך השיעור — שלושה חלקים
           </h2>
           <ol className="relative space-y-3">
-            {ROUTINE.map((s, i) => (
+            {FLOW.map((s, i) => (
               <li
                 key={s.title}
                 className="flex gap-4 rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-5"
@@ -116,8 +112,10 @@ export default function RulesPage() {
             ))}
           </ol>
           <p className="mt-4 rounded-xl bg-[color:var(--accent)]/10 px-4 py-3 text-xs leading-6 text-[color:var(--foreground)]/75">
-            💡 למה השגרה קבועה? כי כשיודעים מה בא עכשיו — הראש פנוי ללימוד עצמו.
-            הקריאה תמיד קודמת למחשב, והמחשב תמיד נסגר לפני הסיכום.
+            💡 הסדר של שלושת החלקים משתנה לפי השיעור — המורה מודיעה בתחילתו. שיעור כפול
+            יכול לכלול שני דיונים, והשיעור שאחריו נפתח בלימוד. שני דברים לא משתנים:
+            הדיון הוא תמיד על יחידה שכבר למדנו, ומי שסיים/ה אותה — מדבר/ת. וכמובן:
+            כשמישהו מדבר, אף אחד אחר לא.
           </p>
         </section>
       </div>
