@@ -5,7 +5,7 @@ import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import PageShell from "@/components/page-shell";
 import { db } from "@/lib/db";
-import { allStudents, allTasksWithStats, now } from "@/lib/tasks";
+import { allStudents, allTasksWithStats, publishUnit } from "@/lib/tasks";
 import { sweepOverdue } from "@/lib/notify";
 import { TASK_REGISTRY, positionLabel } from "@/content/tasks/registry";
 import PrintLinks from "@/components/task/print-links";
@@ -70,31 +70,7 @@ export default async function DashboardPage() {
     const dueTimeRaw = String(formData.get("dueTime") ?? "");
     const dueTime = /^\d{2}:\d{2}$/.test(dueTimeRaw) ? dueTimeRaw : "23:59";
     if (!TASK_REGISTRY[contentRef] || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return;
-    const t = now();
-    const dueAt = israelLocalToUnix(dueDate, dueTime);
-    const title = TASK_REGISTRY[contentRef].content.title;
-    const teacherId = Number(session.user.id);
-
-    const res = await db().execute({
-      sql: `INSERT INTO tasks (content_ref, title, published_at, due_at, created_by, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)`,
-      args: [contentRef, title, t, dueAt, teacherId, t],
-    });
-    const taskId = Number(res.lastInsertRowid);
-
-    // Assign to all onboarded students.
-    const studentRows = await db().execute({
-      sql: `SELECT id FROM users WHERE role = 'student' AND onboarded_at IS NOT NULL
-              AND approved_at IS NOT NULL AND blocked_at IS NULL`,
-      args: [],
-    });
-    for (const r of studentRows.rows) {
-      await db().execute({
-        sql: `INSERT OR IGNORE INTO task_assignments (task_id, user_id, assigned_at)
-              VALUES (?, ?, ?)`,
-        args: [taskId, Number(r.id), t],
-      });
-    }
+    await publishUnit(contentRef, israelLocalToUnix(dueDate, dueTime), Number(session.user.id));
     revalidatePath("/dashboard");
     revalidatePath("/tasks");
   }

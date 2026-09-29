@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { LessonPlan, PlanBlock, BlockKind, UnitOverview } from "@/lib/lesson-plan";
 import Wheel3D, { type WheelItem } from "./wheel-3d";
 
@@ -24,7 +24,11 @@ const AHEAD_COLOR = "#b3892b";
 interface Drum {
   id: string;
   kind: BlockKind;
-  taskId: number | null;
+  ref: string | null; // the unit's content ref — it may have no task yet
+}
+// a unit the class actually has: published and assigned to someone
+export function assignedOK(u: UnitOverview | undefined | null): boolean {
+  return !!u && u.taskId != null && u.assigned > 0;
 }
 
 export function doneFor(u: UnitOverview, kind: BlockKind): boolean {
@@ -117,16 +121,26 @@ export function useLessonPlan() {
     });
     apply(await r.json());
   };
-  return { plan, units, busy, setBusy, act, persist, markUnit, markUpTo };
+  // give units to the class straight from the reels / a popover
+  const publishUnits = async (refs: string[], dueDate?: string): Promise<UnitOverview[]> => {
+    const r = await fetch("/api/lesson-plan/units", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "publish", refs, dueDate }),
+    });
+    const d = await r.json();
+    apply(d);
+    return d.units ?? [];
+  };
+  return { plan, units, busy, setBusy, act, persist, markUnit, markUpTo, publishUnits };
 }
 
 // ---------------------------------------------------------------------------
 // The page
 // ---------------------------------------------------------------------------
 export default function LessonPlanner() {
-  const { plan, units, busy, setBusy, act, persist, markUnit, markUpTo } = useLessonPlan();
+  const { plan, units, busy, setBusy, act, persist, markUnit, markUpTo, publishUnits } = useLessonPlan();
   const [popover, setPopover] = useState<{ ref: string; x: number; y: number } | null>(null);
-  const published = useMemo(() => units.filter((u) => u.taskId != null), [units]);
   // the popover shows the LIVE unit, so a tick inside it is visible at once
   const popUnit = popover ? units.find((u) => u.ref === popover.ref) ?? null : null;
   if (!plan) return <p className="p-6 text-center text-sm text-[color:var(--primary)]/60">טוען…</p>;
@@ -137,9 +151,10 @@ export default function LessonPlanner() {
         <RunningBar plan={plan} busy={busy} act={act} />
       ) : (
         <WheelBuilder
-          units={published}
+          units={units}
           savedBlocks={plan.blocks}
           busy={busy}
+          onPublish={publishUnits}
           onStart={async (blocks) => {
             setBusy(true);
             try {
@@ -155,7 +170,7 @@ export default function LessonPlanner() {
       )}
       <Journey units={units} onShowUnit={(unit, x, y) => setPopover({ ref: unit.ref, x, y })} onMark={markUnit} />
       {popover && popUnit && (
-        <UnitPopover unit={popUnit} x={popover.x} y={popover.y} onClose={() => setPopover(null)} onMark={markUnit} onMarkUpTo={markUpTo} />
+        <UnitPopover unit={popUnit} x={popover.x} y={popover.y} onClose={() => setPopover(null)} onMark={markUnit} onMarkUpTo={markUpTo} onPublish={publishUnits} />
       )}
     </div>
   );
@@ -170,6 +185,7 @@ export function WheelBuilder({
   busy,
   onStart,
   onPersist,
+  onPublish,
   onShowUnit,
   mini = false,
 }: {
@@ -178,27 +194,31 @@ export function WheelBuilder({
   busy: boolean;
   onStart: (blocks: PlanBlock[]) => Promise<void>;
   onPersist: (blocks: PlanBlock[]) => Promise<void>;
+  // give units to the class (returns the fresh unit list); the start button
+  // does it by itself for any reel resting on a unit the class does not have
+  onPublish?: (refs: string[]) => Promise<UnitOverview[]>;
   onShowUnit?: (u: UnitOverview, x: number, y: number) => void;
   mini?: boolean;
 }) {
   const defaultFor = useCallback(
-    (kind: BlockKind): number | null => {
+    (kind: BlockKind): string | null => {
       const u = units.find((x) => !doneFor(x, kind)) ?? units[units.length - 1];
-      return u?.taskId ?? null;
+      return u?.ref ?? null;
     },
     [units]
   );
   const [drums, setDrums] = useState<Drum[] | null>(null);
   useEffect(() => {
     if (drums != null || units.length === 0) return;
-    if (savedBlocks.length > 0) setDrums(savedBlocks.map((b, i) => ({ id: `d${i}-${b.kind}`, kind: b.kind, taskId: b.taskId })));
-    else setDrums((["review", "discussion", "study"] as BlockKind[]).map((kind, i) => ({ id: `d${i}-${kind}`, kind, taskId: defaultFor(kind) })));
+    if (savedBlocks.length > 0)
+      setDrums(savedBlocks.map((b, i) => ({ id: `d${i}-${b.kind}`, kind: b.kind, ref: units.find((u) => u.taskId === b.taskId)?.ref ?? null })));
+    else setDrums((["review", "discussion", "study"] as BlockKind[]).map((kind, i) => ({ id: `d${i}-${kind}`, kind, ref: defaultFor(kind) })));
   }, [units, savedBlocks, drums, defaultFor]);
   // a reel the teacher never rolled sits on the default; when she ticks a
   // unit as done the default moves on — and so does that reel
-  const prevDefaults = useRef<Record<BlockKind, number | null> | null>(null);
+  const prevDefaults = useRef<Record<BlockKind, string | null> | null>(null);
   useEffect(() => {
-    const cur: Record<BlockKind, number | null> = { review: defaultFor("review"), discussion: defaultFor("discussion"), study: defaultFor("study") };
+    const cur: Record<BlockKind, string | null> = { review: defaultFor("review"), discussion: defaultFor("discussion"), study: defaultFor("study") };
     const prev = prevDefaults.current;
     prevDefaults.current = cur;
     if (!prev || !drums) return;
@@ -208,9 +228,9 @@ export function WheelBuilder({
       if (!ds) return ds;
       let changed = false;
       const next = ds.map((d) => {
-        if (moved.includes(d.kind) && d.taskId === prev[d.kind]) {
+        if (moved.includes(d.kind) && d.ref === prev[d.kind]) {
           changed = true;
-          return { ...d, taskId: cur[d.kind] };
+          return { ...d, ref: cur[d.kind] };
         }
         return d;
       });
@@ -224,8 +244,11 @@ export function WheelBuilder({
   }, [defaultFor]);
 
   const saveTimer = useRef<number | null>(null);
-  const toBlocks = (ds: Drum[]): PlanBlock[] =>
-    ds.filter((d) => d.taskId != null).map((d) => ({ kind: d.kind, taskId: d.taskId as number, title: units.find((u) => u.taskId === d.taskId)?.title ?? "" }));
+  const toBlocks = (ds: Drum[], us: UnitOverview[] = units): PlanBlock[] =>
+    ds
+      .map((d) => ({ d, u: us.find((u) => u.ref === d.ref) }))
+      .filter((x) => x.u?.taskId != null)
+      .map(({ d, u }) => ({ kind: d.kind, taskId: u!.taskId as number, title: u!.title }));
   const update = (next: Drum[]) => {
     setDrums(next);
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
@@ -237,6 +260,7 @@ export function WheelBuilder({
   // on release it glides into its slot, and only then the order commits ----
   const rowRef = useRef<HTMLDivElement | null>(null);
   const [drag, setDrag] = useState<{ id: string; dx: number; over: number; settling: boolean } | null>(null);
+  const [starting, setStarting] = useState(false);
   // the reels always fit the row: more reels → narrower reels, never a
   // hidden fourth reel off the edge of a phone
   const [rowW, setRowW] = useState(0);
@@ -337,7 +361,21 @@ export function WheelBuilder({
 
   if (!drums) return null;
   const total = drums.reduce((n, d) => n + KIND[d.kind].minutes, 0);
-  const ready = drums.length > 0 && drums.every((d) => d.taskId != null);
+  // reels resting on a unit the class does not have yet: the start button
+  // gives it to the class first, in the same tap
+  const missing = drums.filter((d) => !assignedOK(units.find((u) => u.ref === d.ref)));
+  const missingRefs = [...new Set(missing.map((d) => d.ref).filter((r): r is string => !!r))];
+  const ready = drums.length > 0 && drums.every((d) => d.ref != null) && (missing.length === 0 || !!onPublish);
+  const start = async () => {
+    setStarting(true);
+    try {
+      let us = units;
+      if (missingRefs.length > 0 && onPublish) us = await onPublish(missingRefs);
+      await onStart(toBlocks(drums, us));
+    } finally {
+      setStarting(false);
+    }
+  };
   const gapPx = mini ? 10 : 14;
   const maxW = mini ? 118 : 156;
   const drumW = rowW > 0 ? Math.max(64, Math.min(maxW, Math.floor((rowW - gapPx * (drums.length - 1)) / drums.length))) : maxW;
@@ -382,7 +420,7 @@ export function WheelBuilder({
               key={d.id}
               drum={d}
               units={units}
-              defaultTaskId={defaultFor(d.kind)}
+              defaultRef={defaultFor(d.kind)}
               mini={mini}
               width={drumW}
               compact={compact}
@@ -403,11 +441,11 @@ export function WheelBuilder({
               onGripDown={(e) => onGripDown(e, d.id)}
               onGripMove={onGripMove}
               onGripUp={onGripUp}
-              onSelect={(taskId) => update(drums.map((x) => (x.id === d.id ? { ...x, taskId } : x)))}
+              onSelect={(ref) => update(drums.map((x) => (x.id === d.id ? { ...x, ref } : x)))}
               onAddSame={() => {
-                const idx = units.findIndex((u) => u.taskId === d.taskId);
+                const idx = units.findIndex((u) => u.ref === d.ref);
                 const nextUnit = units[Math.min(units.length - 1, Math.max(0, idx + 1))];
-                const fresh: Drum = { id: `d${Date.now().toString(36)}-${d.kind}`, kind: d.kind, taskId: nextUnit?.taskId ?? d.taskId };
+                const fresh: Drum = { id: `d${Date.now().toString(36)}-${d.kind}`, kind: d.kind, ref: nextUnit?.ref ?? d.ref };
                 const next = [...drums];
                 next.splice(i + 1, 0, fresh);
                 update(next);
@@ -422,13 +460,17 @@ export function WheelBuilder({
       <div className={`flex flex-wrap items-center justify-between gap-2 ${mini ? "mt-1.5 px-1" : "mt-2 px-1"}`}>
         <button
           type="button"
-          disabled={busy || !ready}
-          onClick={() => onStart(toBlocks(drums))}
-          className={`rounded-full bg-[color:var(--accent)] font-extrabold text-white shadow-lg transition hover:scale-[1.03] active:scale-95 disabled:opacity-40 disabled:hover:scale-100 ${mini ? "px-5 py-2 text-sm" : "px-7 py-3 text-base"}`}
+          disabled={busy || starting || !ready}
+          onClick={start}
+          className={`rounded-full font-extrabold text-white shadow-lg transition hover:scale-[1.03] active:scale-95 disabled:opacity-40 disabled:hover:scale-100 ${starting ? "animate-pulse" : ""} ${mini ? "px-5 py-2 text-sm" : "px-7 py-3 text-base"}`}
+          style={{ background: missingRefs.length > 0 ? AHEAD_COLOR : "var(--accent)" }}
+          title={missingRefs.length > 0 ? "היחידה עוד לא הוקצתה לכיתה — תוקצה לכולן (הגשה בעוד שבוע) ואז השיעור יתחיל" : undefined}
         >
-          ▶ להתחיל את השיעור
+          {starting ? (missingRefs.length > 0 ? "מקצים לכיתה…" : "מתחילים…") : missingRefs.length > 0 ? "📣 להקצות לכיתה ולהתחיל" : "▶ להתחיל את השיעור"}
         </button>
-        <span className={`text-[color:var(--primary)]/50 ${mini ? "text-[10px]" : "text-[11px]"}`}>~{total} דק׳ · מעלה-מטה מגלגל · לצדדים מסדר · ＋ עוד גלגל</span>
+        <span className={`text-[color:var(--primary)]/50 ${mini ? "text-[10px]" : "text-[11px]"}`}>
+          {missingRefs.length > 0 ? "📣 יחידה שעוד לא הוקצתה תוקצה לכל הכיתה בהתחלה · " : ""}~{total} דק׳ · מעלה-מטה מגלגל · לצדדים מסדר · ＋ עוד גלגל
+        </span>
       </div>
     </section>
   );
@@ -437,7 +479,7 @@ export function WheelBuilder({
 function DrumView({
   drum,
   units,
-  defaultTaskId,
+  defaultRef,
   style,
   dragging,
   canRemove,
@@ -454,7 +496,7 @@ function DrumView({
 }: {
   drum: Drum;
   units: UnitOverview[];
-  defaultTaskId: number | null;
+  defaultRef: string | null;
   style?: React.CSSProperties;
   dragging: boolean;
   canRemove: boolean;
@@ -464,15 +506,16 @@ function DrumView({
   onGripDown: (e: React.PointerEvent) => void;
   onGripMove: (e: React.PointerEvent) => void;
   onGripUp: () => void;
-  onSelect: (taskId: number) => void;
+  onSelect: (ref: string) => void;
   onAddSame: () => void;
   onRemove: () => void;
   onShowUnit?: (u: UnitOverview, x: number, y: number) => void;
 }) {
   const k = KIND[drum.kind];
-  const defaultIdx = units.findIndex((u) => u.taskId === defaultTaskId);
-  const index = Math.max(0, units.findIndex((u) => u.taskId === drum.taskId));
+  const defaultIdx = units.findIndex((u) => u.ref === defaultRef);
+  const index = Math.max(0, units.findIndex((u) => u.ref === drum.ref));
   const selected = units[index];
+  const selectedUnassigned = !assignedOK(selected);
   const selectedDone = selected ? doneFor(selected, drum.kind) : false;
   const selectedAhead = defaultIdx >= 0 && index > defaultIdx;
   const state: "done" | "ahead" | "next" = selectedDone ? "done" : selectedAhead ? "ahead" : "next";
@@ -481,7 +524,7 @@ function DrumView({
   const items: WheelItem[] = units.map((u, i) => {
     const done = doneFor(u, drum.kind);
     const ahead = defaultIdx >= 0 && i > defaultIdx;
-    return { key: `${drum.id}-${u.ref}`, num: unitNum(u, i), label: shortTitle(u.title), tone: done ? DONE_COLOR : ahead ? AHEAD_COLOR : k.color, done, state: done ? "done" : ahead ? "ahead" : "next" };
+    return { key: `${drum.id}-${u.ref}`, num: unitNum(u, i), label: shortTitle(u.title), tone: done ? DONE_COLOR : ahead ? AHEAD_COLOR : k.color, done, state: done ? "done" : ahead ? "ahead" : "next", unassigned: !assignedOK(u) };
   });
 
   return (
@@ -546,7 +589,7 @@ function DrumView({
           onReorderEnd={onGripUp}
           onChange={(i) => {
             const u = units[i];
-            if (u?.taskId != null && u.taskId !== drum.taskId) onSelect(u.taskId);
+            if (u && u.ref !== drum.ref) onSelect(u.ref);
           }}
           onTapCentre={(i, x, y) => onShowUnit?.(units[i], x, y)}
         />
@@ -560,6 +603,10 @@ function DrumView({
         ) : state === "ahead" ? (
           <p key="ahead" className={`warn-in rounded-lg px-1 py-0.5 font-bold leading-4 ${mini ? "text-[9px]" : "text-[10px]"}`} style={{ background: `${AHEAD_COLOR}22`, color: "#7a5b12" }}>
             מדלגים קדימה
+          </p>
+        ) : selectedUnassigned ? (
+          <p key="unassigned" className={`warn-in rounded-lg px-1 py-0.5 font-bold leading-4 ${mini ? "text-[9px]" : "text-[10px]"}`} style={{ background: `${AHEAD_COLOR}22`, color: "#7a5b12" }}>
+            📣 עוד לא הוקצתה
           </p>
         ) : (
           <p key="next" className={`font-semibold leading-4 ${mini ? "text-[9px]" : "text-[10px]"}`} style={{ color: k.color }}>הבאה בתור ✓</p>
@@ -744,6 +791,7 @@ export function UnitPopover({
   onClose,
   onMark,
   onMarkUpTo,
+  onPublish,
 }: {
   unit: UnitOverview;
   x: number;
@@ -751,8 +799,43 @@ export function UnitPopover({
   onClose: () => void;
   onMark?: (taskId: number, kind: BlockKind, on: boolean) => Promise<UnitOverview[]>;
   onMarkUpTo?: (taskId: number) => Promise<void>;
+  onPublish?: (refs: string[], dueDate?: string) => Promise<UnitOverview[]>;
 }) {
   const [upTo, setUpTo] = useState<"idle" | "working" | "done">("idle");
+  const [pub, setPub] = useState<"idle" | "working" | "done">("idle");
+  const [dueDate, setDueDate] = useState(() => new Date(Date.now() + 7 * 86400000).toLocaleDateString("en-CA"));
+  const unassigned = !assignedOK(unit);
+  // the panel stays up through the "done ✓" beat even though the unit is
+  // assigned by then — the tap has to be seen to land
+  const publishPanel = onPublish && (unassigned || pub !== "idle") && (
+    <div className="mt-2 rounded-xl border-2 border-dashed px-3 py-2" style={{ borderColor: AHEAD_COLOR, background: `${AHEAD_COLOR}14` }}>
+      <p className="text-xs font-extrabold" style={{ color: "#7a5b12" }}>
+        {unit.taskId == null ? "📣 היחידה עוד לא הוקצתה לכיתה" : "📣 היחידה ירדה מהכיתה — להקצות שוב?"}
+      </p>
+      <label className="mt-1.5 flex items-center gap-2 text-[11px] font-semibold text-[color:var(--primary)]/70">
+        הגשה עד
+        <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="rounded-md border border-[color:var(--border)] bg-white px-2 py-0.5 text-xs" />
+      </label>
+      <button
+        type="button"
+        disabled={pub !== "idle"}
+        onClick={async () => {
+          setPub("working");
+          try {
+            await onPublish([unit.ref], dueDate);
+            setPub("done");
+            window.setTimeout(() => setPub("idle"), 1800);
+          } catch {
+            setPub("idle");
+          }
+        }}
+        className={`mt-2 w-full rounded-xl px-3 py-1.5 text-xs font-extrabold text-white transition-all duration-300 active:scale-[0.98] ${pub === "working" ? "animate-pulse" : ""}`}
+        style={{ background: pub === "done" ? "var(--success)" : AHEAD_COLOR }}
+      >
+        {pub === "done" ? "הוקצתה לכל הכיתה ✓" : pub === "working" ? "מקצים…" : "📣 להקצות לכל הכיתה"}
+      </button>
+    </div>
+  );
   const w = Math.min(340, typeof window !== "undefined" ? window.innerWidth - 24 : 340);
   const left = typeof window !== "undefined" ? Math.max(12, Math.min(x - w / 2, window.innerWidth - w - 12)) : 12;
   const top = typeof window !== "undefined" ? Math.max(12, Math.min(y - 300, window.innerHeight - 320)) : y;
@@ -800,6 +883,7 @@ export function UnitPopover({
               {upTo === "done" ? "נשמר ✓ — עד כאן הכול נעשה" : upTo === "working" ? "מסמנים…" : "✓ הכול עד כאן כבר נלמד (חזרה, דיון, לימוד)"}
             </button>
           )}
+          {publishPanel}
           {unit.question && <p className="mt-2 rounded-lg bg-[color:var(--background)] px-3 py-2 text-xs leading-5 text-[color:var(--foreground)]/80">💬 {unit.question}</p>}
           <div className="mt-3 flex flex-wrap gap-1.5 text-[11px] font-bold">
             <a href={`/dashboard/review/${unit.taskId}`} target="_blank" rel="noopener noreferrer" className="rounded-full px-3 py-1 text-white" style={{ background: KIND.review.color }}>🔁 מצגת ↗</a>
@@ -810,7 +894,13 @@ export function UnitPopover({
           </div>
         </>
       ) : (
-        <p className="mt-2 text-xs text-[color:var(--warning)]">היחידה עוד לא פורסמה — מפרסמים בדשבורד, ואז היא נכנסת לגלגלים.</p>
+        <>
+          {publishPanel ?? <p className="mt-2 text-xs text-[color:var(--warning)]">היחידה עוד לא הוקצתה לכיתה.</p>}
+          {unit.question && <p className="mt-2 rounded-lg bg-[color:var(--background)] px-3 py-2 text-xs leading-5 text-[color:var(--foreground)]/80">💬 {unit.question}</p>}
+          <div className="mt-3 flex flex-wrap gap-1.5 text-[11px] font-bold">
+            <a href={`/dashboard/content/${unit.ref}`} className="rounded-full border border-[color:var(--border)] px-3 py-1 text-[color:var(--primary)]">✏️ תוכן</a>
+          </div>
+        </>
       )}
     </div>
   );

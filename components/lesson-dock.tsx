@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { RunningBar, UnitPopover, WheelBuilder, useLessonPlan } from "./dashboard/lesson-planner";
 import type { UnitOverview } from "@/lib/lesson-plan";
@@ -22,7 +22,7 @@ export default function LessonDock() {
     pathname === "/onboarding" ||
     pathname === "/pending";
 
-  const { plan, units, busy, setBusy, act, persist, markUnit, markUpTo } = useLessonPlan();
+  const { plan, units, busy, setBusy, act, persist, markUnit, markUpTo, publishUnits } = useLessonPlan();
   const [folded, setFolded] = useState(true);
   const [popover, setPopover] = useState<{ ref: string; x: number; y: number } | null>(null);
   const popUnit: UnitOverview | null = popover ? units.find((u) => u.ref === popover.ref) ?? null : null;
@@ -43,7 +43,6 @@ export default function LessonDock() {
       return !f;
     });
   };
-  const published = useMemo(() => units.filter((u) => u.taskId != null), [units]);
 
   if (hidden || !plan) return null;
   const running = plan.current >= 0 && plan.blocks.length > 0;
@@ -86,9 +85,10 @@ export default function LessonDock() {
                 <RunningBar plan={plan} busy={busy} act={act} mini />
               ) : (
                 <WheelBuilder
-                  units={published}
+                  units={units}
                   savedBlocks={plan.blocks}
                   busy={busy}
+                  onPublish={publishUnits}
                   mini
                   onStart={async (blocks) => {
                     setBusy(true);
@@ -108,7 +108,7 @@ export default function LessonDock() {
         </div>
       </div>
       {popover && popUnit && (
-        <UnitPopover unit={popUnit} x={popover.x} y={popover.y} onClose={() => setPopover(null)} onMark={markUnit} onMarkUpTo={markUpTo} />
+        <UnitPopover unit={popUnit} x={popover.x} y={popover.y} onClose={() => setPopover(null)} onMark={markUnit} onMarkUpTo={markUpTo} onPublish={publishUnits} />
       )}
     </>
   );

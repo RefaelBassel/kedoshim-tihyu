@@ -381,6 +381,34 @@ export async function republishTask(taskId: number) {
   }
 }
 
+// Give a unit to the class from anywhere (the dashboard form, the reels, a
+// unit popover): create the task if the content has none yet, otherwise
+// re-assign everyone (a cancelled or emptied task comes back). Returns the
+// task id.
+export async function publishUnit(contentRef: string, dueAt: number, teacherId: number): Promise<number> {
+  const { TASK_REGISTRY } = await import("@/content/tasks/registry");
+  const entry = TASK_REGISTRY[contentRef];
+  if (!entry) throw new Error("unknown content ref");
+  const existing = await db().execute({
+    sql: "SELECT id FROM tasks WHERE content_ref = ? ORDER BY id LIMIT 1",
+    args: [contentRef],
+  });
+  if (existing.rows.length > 0) {
+    const id = Number(existing.rows[0].id);
+    await republishTask(id);
+    return id;
+  }
+  const t = now();
+  const res = await db().execute({
+    sql: `INSERT INTO tasks (content_ref, title, published_at, due_at, created_by, created_at)
+          VALUES (?, ?, ?, ?, ?, ?)`,
+    args: [contentRef, entry.content.title, t, dueAt, teacherId, t],
+  });
+  const id = Number(res.lastInsertRowid);
+  await republishTask(id);
+  return id;
+}
+
 export async function updateTaskDueDate(taskId: number, dueAt: number) {
   await db().execute({
     sql: "UPDATE tasks SET due_at = ? WHERE id = ?",
