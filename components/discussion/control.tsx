@@ -92,7 +92,7 @@ export default function DiscussionControl({ discussionId }: { discussionId: numb
     <div className="mx-auto max-w-2xl space-y-5 px-4 pb-40 pt-5" dir="rtl">
       {/* where this runs */}
       <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] px-4 py-3 text-xs text-[color:var(--primary)]/70">
-        🖥️ <b>הלוח</b> פתוח על הפרוייקטור (חלון נפרד) · 🎛️ <b>הבקרה</b> — כאן, בטלפון או במחשב. כל מה שתעשי כאן מופיע שם תוך שנייה.
+        🖥️ <b>לוח הדיון</b> מוקרן על הפרוייקטור (חלון נפרד) · 🎫 <b>הכרטיסים, השעון והשאלה</b> — כאן, בטלפון או במחשב. כל מה שתעשי כאן מופיע שם תוך שנייה.
         {" "}
         <a
           href={`/dashboard/discussion/${state.taskId}/board`}
@@ -190,8 +190,9 @@ export default function DiscussionControl({ discussionId }: { discussionId: numb
       {/* who may speak — tap to start their clock */}
       <section className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-4">
         <div className="mb-2 flex items-center justify-between gap-2">
-          <p className="text-xs font-bold text-[color:var(--primary)]/60">
-            🎫 כרטיס כניסה לדיון · {approved.length} מאושרים
+          <p className="font-display text-base font-extrabold text-[color:var(--primary)]">
+            🎫 כרטיסי כניסה לדיון
+            <span className="ms-2 rounded-full bg-[color:var(--accent)] px-2 py-0.5 text-xs text-white">{approved.length} מתוך {state.participants.length} עם כרטיס</span>
           </p>
           <button
             type="button"
@@ -201,9 +202,10 @@ export default function DiscussionControl({ discussionId }: { discussionId: numb
             ↻ לרענן מי סיים/ה
           </button>
         </div>
-        <p className="mb-3 text-[11px] text-[color:var(--primary)]/50">
-          ✓ = ענו על כל השאלות של היחידה. לחיצה על שם מאושר מפעילה את השעון שלו/ה. לחיצה ארוכה/על ה-✕ מסירה מהדיון.
+        <p className="mb-3 text-[11px] leading-5 text-[color:var(--primary)]/60">
+          כרטיס מקבל/ת מי שענה/תה על כל שאלות היחידה. אפשר לתת כרטיס ידנית למי שעוד לא סיים/ה. לחיצה על כרטיס מפעילה את השעון של הדובר/ת.
         </p>
+        {eligible.length === 0 && <p className="mb-2 text-xs text-[color:var(--warning)]">עדיין אף אחד/ת לא סיים/ה את היחידה.</p>}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {eligible.map((p) => (
             <SpeakerTile
@@ -219,7 +221,7 @@ export default function DiscussionControl({ discussionId }: { discussionId: numb
         {notEligible.length > 0 && (
           <div className="mt-4 border-t border-dashed border-[color:var(--border)] pt-3">
             <p className="mb-2 text-[11px] font-bold text-[color:var(--warning)]">
-              ⏳ עוד לא סיימו את היחידה ({notEligible.length}) — בלי כרטיס, אלא אם תאשרי ידנית
+              ⏳ עוד בלי כרטיס ({notEligible.length}) — לא סיימו את היחידה. אפשר לתת כרטיס ידנית.
             </p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {notEligible.map((p) => (
@@ -379,46 +381,75 @@ function SpeakerTile({
   dim?: boolean;
 }) {
   const mm = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  const held = p.approved;
+  // a ticket: a stub with a perforation, punched at the edges; without a
+  // ticket the tile is a faint dashed outline waiting to be filled
   return (
     <div
-      className={`relative rounded-2xl border p-2.5 text-start transition ${
+      className={`relative overflow-hidden rounded-xl border-2 transition ${
         isActive
-          ? "border-[color:var(--accent)] bg-[color:var(--accent)] text-white shadow-md"
-          : p.approved
-            ? "border-[color:var(--success)]/50 bg-[color:var(--card)]"
-            : "border-dashed border-[color:var(--border)] bg-[color:var(--background)] opacity-70"
+          ? "border-[color:var(--accent)] text-white shadow-lg"
+          : held
+            ? "border-[color:var(--accent)]/70 text-[color:var(--primary)]"
+            : "border-dashed border-[color:var(--border)] text-[color:var(--primary)]/60"
       }`}
+      style={{
+        background: isActive
+          ? "var(--accent)"
+          : held
+            ? "linear-gradient(180deg, color-mix(in srgb, var(--accent) 24%, var(--card)) 0 22px, color-mix(in srgb, var(--accent) 8%, var(--card)) 22px)"
+            : "var(--background)",
+      }}
     >
+      {/* punched holes on the perforation line */}
+      {held && !isActive && (
+        <>
+          <span aria-hidden className="absolute -left-2 top-[18px] h-4 w-4 rounded-full bg-[color:var(--card)]" style={{ boxShadow: "inset 0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent)" }} />
+          <span aria-hidden className="absolute -right-2 top-[18px] h-4 w-4 rounded-full bg-[color:var(--card)]" style={{ boxShadow: "inset 0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent)" }} />
+          <span aria-hidden className="absolute inset-x-3 top-[25px] border-t border-dashed" style={{ borderColor: "color-mix(in srgb, var(--accent) 55%, transparent)" }} />
+        </>
+      )}
+      <div className={`flex items-center justify-between px-3 text-[10px] font-extrabold tracking-wide ${held || isActive ? "h-[22px]" : "h-[22px] opacity-70"}`}>
+        <span>{isActive ? "⏱ מדבר/ת עכשיו" : held ? "🎫 כרטיס כניסה" : "▫️ בלי כרטיס"}</span>
+        {held && !isActive && p.turns > 0 && <span className="opacity-70">דיבר/ה {mm(p.spokeSeconds)}</span>}
+      </div>
       <button
         type="button"
-        disabled={busy || !p.approved}
+        disabled={busy || !held}
         onClick={onStart}
-        className="block w-full text-start disabled:cursor-not-allowed"
-        title={p.approved ? "להפעיל את השעון" : "לא מאושר/ת לדיון"}
+        className="block w-full px-3 pb-1 pt-2 text-start disabled:cursor-default"
+        title={held ? "להפעיל את השעון של הדובר/ת" : "עוד בלי כרטיס"}
       >
-        <p className="truncate text-sm font-bold">{p.name}</p>
-        <p className={`text-[10px] ${isActive ? "text-white/80" : "text-[color:var(--primary)]/55"}`}>
-          {p.eligible ? "✓ סיים/ה את היחידה" : `⏳ ${p.answered}/${p.total} שאלות`}
-          {p.turns > 0 && ` · דיבר/ה ${mm(p.spokeSeconds)}`}
+        <p className="truncate text-sm font-extrabold">{p.name}</p>
+        <p className={`text-[10px] ${isActive ? "text-white/85" : "opacity-70"}`}>
+          {p.eligible ? "ענה/תה על כל השאלות ✓" : held ? `ניתן ידנית · ${p.answered}/${p.total} שאלות` : `${p.answered}/${p.total} שאלות`}
         </p>
       </button>
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-label={p.approved ? "להסיר מהדיון" : "לאשר לדיון"}
-        title={p.approved ? "להסיר מהדיון" : "לאשר לדיון בכל זאת"}
-        className={`absolute top-1.5 flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold ${
-          p.approved
-            ? isActive
-              ? "bg-white/25 text-white"
-              : "bg-[color:var(--danger)]/10 text-[color:var(--danger)]"
-            : "bg-[color:var(--success)] text-white"
-        }`}
-        style={{ insetInlineStart: 6 }}
-      >
-        {p.approved ? "✕" : "✓"}
-      </button>
-      {dim && !p.approved && <span className="sr-only">לא זכאי/ת</span>}
+      <div className="flex items-center gap-1 px-2 pb-2">
+        {held ? (
+          <>
+            {!isActive && (
+              <button type="button" disabled={busy} onClick={onStart} className="flex-1 rounded-full bg-[color:var(--accent)] py-1 text-[11px] font-extrabold text-white shadow active:scale-95 disabled:opacity-50">
+                ▶ להפעיל שעון
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onToggle}
+              className={`rounded-full px-2 py-1 text-[10px] font-bold ${isActive ? "bg-white/20 text-white" : "text-[color:var(--danger)]/80 hover:bg-[color:var(--danger)]/10"}`}
+              title="להסיר את הכרטיס"
+            >
+              להסיר כרטיס
+            </button>
+          </>
+        ) : (
+          <button type="button" disabled={busy} onClick={onToggle} className="flex-1 rounded-full border-2 border-[color:var(--accent)] py-1 text-[11px] font-extrabold text-[color:var(--accent)] transition hover:bg-[color:var(--accent)] hover:text-white active:scale-95 disabled:opacity-50">
+            🎫 לתת כרטיס
+          </button>
+        )}
+      </div>
+      {dim && !held && <span className="sr-only">בלי כרטיס</span>}
     </div>
   );
 }

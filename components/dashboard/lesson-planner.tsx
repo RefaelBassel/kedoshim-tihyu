@@ -3,6 +3,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LessonPlan, PlanBlock, BlockKind, UnitOverview } from "@/lib/lesson-plan";
 import Wheel3D, { type WheelItem } from "./wheel-3d";
+import TicketsStrip from "./tickets-strip";
+
+// the one tool each block needs, in plain words
+export function toolsFor(kind: BlockKind, taskId: number): { href: string; label: string; newTab?: boolean; primary?: boolean }[] {
+  switch (kind) {
+    case "review":
+      return [{ href: `/dashboard/review/${taskId}`, label: "🖥️ לפתוח את מצגת החזרה", newTab: true, primary: true }];
+    case "discussion":
+      return [
+        { href: `/dashboard/discussion/${taskId}/control`, label: "🎫 כרטיסי כניסה ושאלת הדיון", primary: true },
+        { href: `/dashboard/discussion/${taskId}/board`, label: "🖥️ להקרין את לוח הדיון", newTab: true },
+      ];
+    case "study":
+      return [
+        { href: `/tasks/${taskId}`, label: "📖 לפתוח את המשימה", primary: true },
+        { href: `/dashboard/class-board/${taskId}`, label: "🖥️ להקרין את לוח הכיתה", newTab: true },
+      ];
+  }
+}
 
 // מהלך השיעור — built around THE REELS: three slot reels (חזרה · דיון ·
 // לימוד), each rolled to a unit. They rest by default on the next unit not
@@ -368,10 +387,21 @@ export function WheelBuilder({
   const ready = drums.length > 0 && drums.every((d) => d.ref != null) && (missing.length === 0 || !!onPublish);
   const start = async () => {
     setStarting(true);
+    // a lesson that opens with a review opens its deck at once — the window
+    // must be opened inside the tap (pop-up rules), then pointed at the deck
+    const deckWin = drums[0]?.kind === "review" ? window.open("about:blank", "_blank") : null;
     try {
       let us = units;
       if (missingRefs.length > 0 && onPublish) us = await onPublish(missingRefs);
-      await onStart(toBlocks(drums, us));
+      const blocks = toBlocks(drums, us);
+      await onStart(blocks);
+      if (deckWin) {
+        const first = blocks[0];
+        if (first && first.kind === "review") deckWin.location.href = `/dashboard/review/${first.taskId}`;
+        else deckWin.close();
+      }
+    } catch {
+      deckWin?.close();
     } finally {
       setStarting(false);
     }
@@ -631,9 +661,42 @@ function DrumView({
 // Running bar
 // ---------------------------------------------------------------------------
 export function RunningBar({ plan, busy, act, mini = false }: { plan: LessonPlan; busy: boolean; act: (a: string) => Promise<void>; mini?: boolean }) {
+  const cur = plan.blocks[plan.current];
+  const curKind = cur ? KIND[cur.kind] : null;
+  const tools = cur ? toolsFor(cur.kind, cur.taskId) : [];
+  // the debate whose tickets matter now: the one running, else the next one
+  const debateIdx = cur?.kind === "discussion" ? plan.current : plan.blocks.findIndex((b, i) => i > plan.current && b.kind === "discussion");
+  const debate = debateIdx >= 0 ? plan.blocks[debateIdx] : null;
   return (
-    <section className={mini ? "" : "rounded-3xl border-2 border-[color:var(--accent)] bg-[color:var(--card)] p-4 sm:p-5"}>
-      {!mini && <p className="mb-3 font-display text-xl font-extrabold text-[color:var(--primary)]">▶ השיעור רץ</p>}
+    <section className={mini ? "space-y-2" : "space-y-3 rounded-3xl border-2 border-[color:var(--accent)] bg-[color:var(--card)] p-4 sm:p-5"}>
+      {!mini && <p className="font-display text-xl font-extrabold text-[color:var(--primary)]">▶ השיעור רץ</p>}
+      {cur && curKind && (
+        <div className={`rounded-2xl border-2 ${mini ? "px-3 py-2" : "px-4 py-3"}`} style={{ borderColor: curKind.color, background: `${curKind.color}10` }}>
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+            <p className={`font-extrabold text-[color:var(--primary)] ${mini ? "text-sm" : "text-lg"}`}>
+              עכשיו: {curKind.emoji} {curKind.label}
+              <span className={`ms-2 font-semibold text-[color:var(--foreground)]/70 ${mini ? "text-xs" : "text-sm"}`}>{shortTitle(cur.title)}</span>
+            </p>
+            <span className="flex flex-wrap items-center gap-1.5">
+              {tools.map((t) => (
+                <a
+                  key={t.href}
+                  href={t.href}
+                  target={t.newTab ? "_blank" : undefined}
+                  rel={t.newTab ? "noopener noreferrer" : undefined}
+                  className={`rounded-full font-extrabold shadow transition hover:scale-[1.03] active:scale-95 ${mini ? "px-3 py-1 text-xs" : "px-4 py-1.5 text-sm"} ${t.primary ? "text-white" : "border-2 bg-[color:var(--card)]"}`}
+                  style={t.primary ? { background: curKind.color } : { borderColor: curKind.color, color: curKind.color }}
+                >
+                  {t.label}
+                </a>
+              ))}
+            </span>
+          </div>
+        </div>
+      )}
+      {debate && (
+        <TicketsStrip taskId={debate.taskId} heading={debateIdx === plan.current ? "כרטיסי כניסה לדיון" : "כרטיסי כניסה לדיון הבא"} compact={mini} />
+      )}
       <ol className="flex flex-wrap items-center gap-2">
         {plan.blocks.map((b, i) => {
           const k = KIND[b.kind];
@@ -886,11 +949,11 @@ export function UnitPopover({
           {publishPanel}
           {unit.question && <p className="mt-2 rounded-lg bg-[color:var(--background)] px-3 py-2 text-xs leading-5 text-[color:var(--foreground)]/80">💬 {unit.question}</p>}
           <div className="mt-3 flex flex-wrap gap-1.5 text-[11px] font-bold">
-            <a href={`/dashboard/review/${unit.taskId}`} target="_blank" rel="noopener noreferrer" className="rounded-full px-3 py-1 text-white" style={{ background: KIND.review.color }}>🔁 מצגת ↗</a>
-            <a href={`/dashboard/discussion/${unit.taskId}/control`} className="rounded-full px-3 py-1 text-white" style={{ background: KIND.discussion.color }}>🎛️ בקרת דיון</a>
-            <a href={`/dashboard/discussion/${unit.taskId}/board`} target="_blank" rel="noopener noreferrer" className="rounded-full border px-3 py-1" style={{ borderColor: KIND.discussion.color, color: KIND.discussion.color }}>🖥️ לוח ↗</a>
-            <a href={`/tasks/${unit.taskId}`} className="rounded-full px-3 py-1 text-white" style={{ background: KIND.study.color }}>📖 המשימה</a>
-            <a href={`/dashboard/content/${unit.ref}`} className="rounded-full border border-[color:var(--border)] px-3 py-1 text-[color:var(--primary)]">✏️ תוכן</a>
+            <a href={`/dashboard/review/${unit.taskId}`} target="_blank" rel="noopener noreferrer" className="rounded-full px-3 py-1 text-white" style={{ background: KIND.review.color }}>🔁 מצגת החזרה ↗</a>
+            <a href={`/dashboard/discussion/${unit.taskId}/control`} className="rounded-full px-3 py-1 text-white" style={{ background: KIND.discussion.color }}>🎫 כרטיסי כניסה ועריכת שאלת הדיון</a>
+            <a href={`/dashboard/discussion/${unit.taskId}/board`} target="_blank" rel="noopener noreferrer" className="rounded-full border px-3 py-1" style={{ borderColor: KIND.discussion.color, color: KIND.discussion.color }}>🖥️ להקרין את לוח הדיון ↗</a>
+            <a href={`/tasks/${unit.taskId}`} className="rounded-full px-3 py-1 text-white" style={{ background: KIND.study.color }}>📖 פתיחת המשימה</a>
+            <a href={`/dashboard/content/${unit.ref}`} className="rounded-full border border-[color:var(--border)] px-3 py-1 text-[color:var(--primary)]">✏️ עריכת התוכן</a>
           </div>
         </>
       ) : (
@@ -898,7 +961,7 @@ export function UnitPopover({
           {publishPanel ?? <p className="mt-2 text-xs text-[color:var(--warning)]">היחידה עוד לא הוקצתה לכיתה.</p>}
           {unit.question && <p className="mt-2 rounded-lg bg-[color:var(--background)] px-3 py-2 text-xs leading-5 text-[color:var(--foreground)]/80">💬 {unit.question}</p>}
           <div className="mt-3 flex flex-wrap gap-1.5 text-[11px] font-bold">
-            <a href={`/dashboard/content/${unit.ref}`} className="rounded-full border border-[color:var(--border)] px-3 py-1 text-[color:var(--primary)]">✏️ תוכן</a>
+            <a href={`/dashboard/content/${unit.ref}`} className="rounded-full border border-[color:var(--border)] px-3 py-1 text-[color:var(--primary)]">✏️ עריכת התוכן</a>
           </div>
         </>
       )}

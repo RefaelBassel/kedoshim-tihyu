@@ -16,16 +16,16 @@ const KIND: Record<BlockKind, { emoji: string; label: string }> = {
 function toolsFor(kind: BlockKind, taskId: number) {
   switch (kind) {
     case "review":
-      return [{ href: `/dashboard/review/${taskId}`, label: "🖥️ להקרין את המצגת", newTab: true, primary: true }];
+      return [{ href: `/dashboard/review/${taskId}`, label: "🖥️ לפתוח את מצגת החזרה", newTab: true, primary: true }];
     case "discussion":
       return [
-        { href: `/dashboard/discussion/${taskId}/control`, label: "🎛️ בקרה", primary: true },
-        { href: `/dashboard/discussion/${taskId}/board`, label: "🖥️ הלוח", newTab: true },
+        { href: `/dashboard/discussion/${taskId}/control`, label: "🎫 כרטיסי כניסה ושאלת הדיון", primary: true },
+        { href: `/dashboard/discussion/${taskId}/board`, label: "🖥️ להקרין את לוח הדיון", newTab: true },
       ];
     case "study":
       return [
-        { href: `/tasks/${taskId}`, label: "👀 המשימה", primary: true },
-        { href: `/dashboard/class-board/${taskId}`, label: "🖥️ לוח הכיתה", newTab: true },
+        { href: `/tasks/${taskId}`, label: "📖 לפתוח את המשימה", primary: true },
+        { href: `/dashboard/class-board/${taskId}`, label: "🖥️ להקרין את לוח הכיתה", newTab: true },
       ];
   }
 }

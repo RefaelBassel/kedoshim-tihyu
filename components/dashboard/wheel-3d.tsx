@@ -308,6 +308,10 @@ export default function Wheel3D({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      // the click that follows a tap must not reach the page's "close the
+      // popover" handler, and a right click is not the browser's business here
+      onClick={(e) => e.stopPropagation()}
+      onContextMenu={(e) => e.preventDefault()}
       onKeyDown={onKey}
       className="relative select-none overflow-hidden outline-none"
       style={{
