@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { LessonPlan, PlanBlock, BlockKind, UnitOverview } from "@/lib/lesson-plan";
 import Wheel3D, { type WheelItem } from "./wheel-3d";
 import TicketsStrip from "./tickets-strip";
+import { projectorUrl } from "@/lib/lesson-flow";
 
 // the one tool each block needs, in plain words
 export function toolsFor(kind: BlockKind, taskId: number): { href: string; label: string; newTab?: boolean; primary?: boolean }[] {
@@ -387,21 +388,22 @@ export function WheelBuilder({
   const ready = drums.length > 0 && drums.every((d) => d.ref != null) && (missing.length === 0 || !!onPublish);
   const start = async () => {
     setStarting(true);
-    // a lesson that opens with a review opens its deck at once — the window
-    // must be opened inside the tap (pop-up rules), then pointed at the deck
-    const deckWin = drums[0]?.kind === "review" ? window.open("about:blank", "_blank") : null;
+    // ▶ opens the projector screen of the first block at once (deck, debate
+    // board or class board); from there the projector follows the plan by
+    // itself. The window must be opened inside the tap (pop-up rules).
+    const projWin = window.open("about:blank", "_blank");
     try {
       let us = units;
       if (missingRefs.length > 0 && onPublish) us = await onPublish(missingRefs);
       const blocks = toBlocks(drums, us);
       await onStart(blocks);
-      if (deckWin) {
-        const first = blocks[0];
-        if (first && first.kind === "review") deckWin.location.href = `/dashboard/review/${first.taskId}`;
-        else deckWin.close();
+      const first = blocks[0];
+      if (projWin) {
+        if (first) projWin.location.href = projectorUrl(first.kind, first.taskId);
+        else projWin.close();
       }
     } catch {
-      deckWin?.close();
+      projWin?.close();
     } finally {
       setStarting(false);
     }

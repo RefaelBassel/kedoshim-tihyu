@@ -3,6 +3,7 @@ import { redirect, notFound } from "next/navigation";
 import { getTask } from "@/lib/tasks";
 import { getOrCreateDiscussion } from "@/lib/discussion";
 import DiscussionBoard from "@/components/discussion/board";
+import LessonFollower from "@/components/lesson-follower";
 
 // The projected debate board — teacher only, chrome-free, input-free. Opens
 // (or resumes) the task's discussion so that either surface can be opened
@@ -20,5 +21,10 @@ export default async function DiscussionBoardPage({
   const task = await getTask(Number(taskId));
   if (!task) notFound();
   const id = await getOrCreateDiscussion(task.id, Number(user.id));
-  return <DiscussionBoard discussionId={id} />;
+  return (
+    <>
+      <DiscussionBoard discussionId={id} />
+      <LessonFollower kind="discussion" taskId={task.id} />
+    </>
+  );
 }

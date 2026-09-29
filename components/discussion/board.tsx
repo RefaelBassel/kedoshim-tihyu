@@ -128,7 +128,11 @@ export default function DiscussionBoard({ discussionId }: { discussionId: number
               🎤 דוברים ודוברות · {speakers.length}
             </p>
             {speakers.length === 0 ? (
-              <p className="text-sm text-[color:var(--primary)]/50">עוד לא אושרו משתתפים.</p>
+              <div className="rounded-2xl border border-dashed border-[color:var(--accent)]/50 px-4 py-3 text-center" style={{ background: "color-mix(in srgb, var(--accent) 6%, var(--card))" }}>
+                <p className="text-2xl">🎫</p>
+                <p className="mt-1 text-sm font-bold text-[color:var(--primary)]">כרטיסי הכניסה נבדקים עכשיו</p>
+                <p className="text-xs text-[color:var(--primary)]/60">מי שענה/תה על כל שאלות היחידה נכנס/ת לדיון. עוד רגע.</p>
+              </div>
             ) : (
               <ul className="flex flex-wrap gap-2">
                 {speakers.map((p) => {

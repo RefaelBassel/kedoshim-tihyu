@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { ReviewDeck, DiscussionQuestion } from "@/content/tasks/types";
+import type { BlockKind } from "@/lib/lesson-plan";
+import { KIND_WORD, projectorUrl } from "@/lib/lesson-flow";
 import { ReviewEditor } from "./dashboard/unit-text-editors";
 
 // מצגת החזרה — the 5-minute reminder that opens a lesson before the debate.
@@ -143,6 +145,12 @@ export function buildReviewSlides({
   return slides;
 }
 
+// when the deck is the block running right now, its last slide flows on
+// to the next block (the projector follows the plan by itself)
+export interface DeckFlow {
+  next: { kind: BlockKind; taskId: number; title: string } | null;
+}
+
 export default function ReviewDeckPlayer({
   taskId,
   contentRef,
@@ -150,6 +158,7 @@ export default function ReviewDeckPlayer({
   bookRef,
   review,
   discussion,
+  flow = null,
 }: {
   taskId: number;
   contentRef: string;
@@ -157,23 +166,56 @@ export default function ReviewDeckPlayer({
   bookRef: string;
   review: ReviewDeck | null;
   discussion: DiscussionQuestion | null;
+  flow?: DeckFlow | null;
 }) {
   const slides = buildReviewSlides({ title, bookRef, review, discussion });
   const [idx, setIdx] = useState(0);
   const [editing, setEditing] = useState(false);
+  const [advancing, setAdvancing] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const touchStart = useRef<number | null>(null);
   const count = slides.length;
   const backHref = `/dashboard/task/${taskId}`;
 
-  const go = useCallback((n: number) => setIdx(Math.max(0, Math.min(count - 1, n))), [count]);
+  // move the lesson on: next block (the projector page follows), or end it
+  const advance = useCallback(async () => {
+    if (!flow || advancing) return;
+    setAdvancing(true);
+    try {
+      const r = await fetch("/api/lesson-plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: flow.next ? "next" : "stop" }),
+      });
+      const dd = await r.json();
+      if (dd.ok) {
+        window.dispatchEvent(new Event("lesson-plan-changed"));
+        window.location.href = flow.next ? projectorUrl(flow.next.kind, flow.next.taskId) : "/dashboard/lesson";
+        return;
+      }
+    } catch {
+      /* stay on the deck */
+    }
+    setAdvancing(false);
+  }, [flow, advancing]);
+
+  const go = useCallback(
+    (n: number) => {
+      if (n >= count && flow) {
+        void advance();
+        return;
+      }
+      setIdx(Math.max(0, Math.min(count - 1, n)));
+    },
+    [count, flow, advance]
+  );
 
   useEffect(() => {
     if (editing) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "ArrowLeft" || e.key === " " || e.key === "Enter" || e.key === "PageDown") {
         e.preventDefault();
-        setIdx((i) => Math.min(count - 1, i + 1));
+        go(idx + 1);
       } else if (e.key === "ArrowRight" || e.key === "PageUp") {
         e.preventDefault();
         setIdx((i) => Math.max(0, i - 1));
@@ -186,7 +228,7 @@ export default function ReviewDeckPlayer({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [count, editing, backHref]);
+  }, [count, editing, backHref, go, idx]);
 
   const toggleFullscreen = () => {
     if (document.fullscreenElement) void document.exitFullscreen();
@@ -265,6 +307,23 @@ export default function ReviewDeckPlayer({
             <button type="button" aria-label="השקף הבא" onClick={(e) => { e.stopPropagation(); go(idx + 1); }} className="absolute end-3 top-1/2 -translate-y-1/2 rounded-full border bg-white/90 px-3 py-2 text-lg shadow-sm transition hover:scale-110" style={{ borderColor: "#e9ddd2", color: GRAPE }}>
               ‹
             </button>
+          )}
+          {flow && idx === count - 1 && (
+            <div className="deck-fade absolute inset-x-0 bottom-6 z-20 flex justify-center px-6">
+              <button
+                type="button"
+                disabled={advancing}
+                onClick={(e) => { e.stopPropagation(); void advance(); }}
+                className={`rounded-full px-8 py-3 text-lg font-extrabold text-white shadow-xl transition hover:scale-[1.03] active:scale-95 disabled:opacity-60 ${advancing ? "animate-pulse" : ""}`}
+                style={{ background: flow.next ? (flow.next.kind === "discussion" ? "#413055" : flow.next.kind === "study" ? "#3e6b4f" : "#b96a3b") : "#3e6b4f" }}
+              >
+                {advancing
+                  ? "עוברים…"
+                  : flow.next
+                    ? `הלאה ← ${KIND_WORD[flow.next.kind].emoji} ${KIND_WORD[flow.next.kind].label} · ${flow.next.title.length > 34 ? flow.next.title.slice(0, 32) + "…" : flow.next.title}`
+                    : "✓ סיום השיעור"}
+              </button>
+            </div>
           )}
         </div>
       )}

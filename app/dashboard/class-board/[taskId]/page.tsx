@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { redirect, notFound } from "next/navigation";
 import { getTask } from "@/lib/tasks";
 import ClassBoard from "@/components/class-board";
+import LessonFollower from "@/components/lesson-follower";
 
 // The projectable class board — teacher only, chrome-free (no nav/footer
 // clutter on the classroom projector).
@@ -19,5 +20,10 @@ export default async function ClassBoardPage({
   const task = await getTask(Number(taskId));
   if (!task) notFound();
 
-  return <ClassBoard taskId={task.id} />;
+  return (
+    <>
+      <ClassBoard taskId={task.id} />
+      <LessonFollower kind="study" taskId={task.id} />
+    </>
+  );
 }

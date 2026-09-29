@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { DiscussionState } from "@/lib/discussion";
+import type { LessonPlan } from "@/lib/lesson-plan";
+import { KIND_WORD, teacherUrl } from "@/lib/lesson-flow";
 
 // The teacher's control page for the debate — built for her phone or her
 // laptop screen, NEVER for the projected window. Everything here is one
@@ -20,6 +22,21 @@ export default function DiscussionControl({ discussionId }: { discussionId: numb
   const [flash, setFlash] = useState<string | null>(null);
   const [editingQ, setEditingQ] = useState(false);
   const [qDraft, setQDraft] = useState("");
+  // today's plan, when this debate is the block running right now: ending
+  // the debate moves the lesson on and takes the teacher to the next screen
+  const [plan, setPlan] = useState<LessonPlan | null>(null);
+  useEffect(() => {
+    const load = () =>
+      fetch("/api/lesson-plan", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.ok) setPlan(d.plan);
+        })
+        .catch(() => {});
+    load();
+    const iv = setInterval(load, 20000);
+    return () => clearInterval(iv);
+  }, []);
   const textRef = useRef<HTMLTextAreaElement | null>(null);
 
   const apply = (d: { ok?: boolean; state?: DiscussionState }) => {
@@ -74,6 +91,27 @@ export default function DiscussionControl({ discussionId }: { discussionId: numb
   const active = state.activeTurn;
   const remaining = active ? state.secondsPerSpeaker - (nowS - active.startedAt) : null;
   const mm = (s: number) => `${s < 0 ? "-" : ""}${Math.floor(Math.abs(s) / 60)}:${String(Math.abs(s) % 60).padStart(2, "0")}`;
+  const curBlock = plan && plan.current >= 0 ? plan.blocks[plan.current] : null;
+  const isCurrentBlock = !!curBlock && curBlock.kind === "discussion" && curBlock.taskId === state.taskId;
+  const nextBlock = isCurrentBlock && plan ? (plan.blocks[plan.current + 1] ?? null) : null;
+  const endDebate = async () => {
+    await act({ action: "close" });
+    if (!isCurrentBlock) return;
+    try {
+      const r = await fetch("/api/lesson-plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: nextBlock ? "next" : "stop" }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        window.dispatchEvent(new Event("lesson-plan-changed"));
+        window.location.href = nextBlock ? teacherUrl(nextBlock.kind, nextBlock.taskId) : "/dashboard/lesson";
+      }
+    } catch {
+      /* stay here */
+    }
+  };
   const eligible = state.participants.filter((p) => p.eligible);
   const notEligible = state.participants.filter((p) => !p.eligible);
   const approved = state.participants.filter((p) => p.approved);
@@ -269,12 +307,18 @@ export default function DiscussionControl({ discussionId }: { discussionId: numb
         {state.status === "open" ? (
           <button
             type="button"
+            disabled={busy}
             onClick={() => {
-              if (window.confirm("לסיים את הדיון? הלוח יישאר לצפייה, והדיון יישמר בתיעוד.")) act({ action: "close" });
+              const tail = nextBlock
+                ? ` השיעור ימשיך ל${KIND_WORD[nextBlock.kind].label} · ${nextBlock.title}, והלוח המוקרן יעבור לשם לבד.`
+                : isCurrentBlock
+                  ? " זה הבלוק האחרון — השיעור יסתיים."
+                  : "";
+              if (window.confirm(`לסיים את הדיון? הדיון יישמר בתיעוד.${tail}`)) void endDebate();
             }}
-            className="rounded-full border border-[color:var(--border)] px-4 py-1.5 text-xs font-bold text-[color:var(--primary)]/70 hover:border-[color:var(--danger)] hover:text-[color:var(--danger)]"
+            className={`rounded-full px-4 py-2 text-sm font-extrabold shadow transition active:scale-95 disabled:opacity-50 ${isCurrentBlock ? "bg-[color:var(--success)] text-white" : "border border-[color:var(--border)] text-[color:var(--primary)]/70 hover:border-[color:var(--danger)] hover:text-[color:var(--danger)]"}`}
           >
-            סיום הדיון
+            {nextBlock ? `✓ סיום הדיון והלאה ל${KIND_WORD[nextBlock.kind].label}` : isCurrentBlock ? "✓ סיום הדיון והשיעור" : "סיום הדיון"}
           </button>
         ) : (
           <button
