@@ -5,6 +5,8 @@ import { auth } from "@/auth";
 import {
   approveUser,
   blockUser,
+  makeStudent,
+  makeTeacher,
   preApproveEmail,
   removeUser,
   unblockUser,
@@ -48,6 +50,20 @@ export async function removeAction(userId: number) {
   await removeUser(userId);
   done();
   return { ok: true };
+}
+
+export async function makeTeacherAction(userId: number) {
+  if (!(await requireTeacher())) return { ok: false, error: "למורות בלבד." };
+  await makeTeacher(userId);
+  done();
+  return { ok: true };
+}
+
+export async function makeStudentAction(userId: number) {
+  if (!(await requireTeacher())) return { ok: false, error: "למורות בלבד." };
+  const ok = await makeStudent(userId);
+  done();
+  return { ok };
 }
 
 export async function preApproveAction(emails: string) {

@@ -5,10 +5,13 @@ import type { AccountRow } from "@/lib/approval";
 import {
   approveAction,
   blockAction,
+  makeStudentAction,
+  makeTeacherAction,
   preApproveAction,
   removeAction,
   unblockAction,
 } from "@/app/dashboard/students/actions";
+import { TEACHER_EMAILS } from "@/lib/roles";
 
 // The roster UI. Every row shows the Hebrew name (if onboarded), the Google
 // email, when the account appeared and when it was last seen — enough to
@@ -66,6 +69,12 @@ export default function StudentsAdmin({
         actions={(a) => (
           <>
             <ActionBtn
+              label="👩‍🏫 זו מורה"
+              tone="muted"
+              confirm={`לסמן את ${a.fullName ?? a.email} כמורה? החשבון ייצא מכל רשימות התלמידות (הקצאות, כרטיסי כניסה, השלמות) ויקבל את מסכי המורה.`}
+              run={() => makeTeacherAction(a.id)}
+            />
+            <ActionBtn
               label="חסימה"
               tone="muted"
               confirm={`לחסום את ${a.fullName ?? a.email}? העבודה נשמרת, אבל הכניסה נסגרת עד לביטול החסימה.`}
@@ -102,13 +111,19 @@ export default function StudentsAdmin({
       )}
 
       <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-5">
-        <p className="mb-2 text-xs font-bold text-[color:var(--primary)]/60">👩‍🏫 מורות (מאושרות תמיד)</p>
-        <ul className="space-y-1 text-sm">
+        <p className="mb-1 text-xs font-bold text-[color:var(--primary)]/60">👩‍🏫 מורות (מאושרות תמיד, לא מופיעות באף רשימת תלמידות)</p>
+        <p className="mb-3 text-[11px] text-[color:var(--primary)]/50">חשבון של מורה שנכנס עם כתובת גוגל אחרת נראה כמו תלמידה — מסמנים אותו ״זו מורה״ ברשימת המאושרים.</p>
+        <ul className="space-y-1.5 text-sm">
           {teachers.map((t) => (
-            <li key={t.id} className="flex items-center justify-between">
+            <li key={t.id} className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-semibold">{t.fullName ?? t.email}</span>
-              <span className="text-xs text-[color:var(--primary)]/55" dir="ltr">
-                {t.email}
+              <span className="flex items-center gap-2">
+                <span className="text-xs text-[color:var(--primary)]/55" dir="ltr">
+                  {t.email}
+                </span>
+                {!TEACHER_EMAILS.has(t.email.toLowerCase()) && (
+                  <ActionBtn label="בחזרה לתלמידה" tone="muted" confirm={`להחזיר את ${t.fullName ?? t.email} לתלמידה?`} run={() => makeStudentAction(t.id)} />
+                )}
               </span>
             </li>
           ))}

@@ -60,6 +60,28 @@ export async function approveUser(userId: number) {
   });
 }
 
+// "This is a teacher": the account becomes a teacher (approved, never a
+// student anywhere again) and leaves every class list — its task
+// assignments go, so it no longer counts in rosters, tickets or completion.
+export async function makeTeacher(userId: number) {
+  await ensureApprovalColumns();
+  await db().execute({
+    sql: "UPDATE users SET role = 'teacher', approved_at = COALESCE(approved_at, ?), blocked_at = NULL WHERE id = ?",
+    args: [now(), userId],
+  });
+  await db().execute({ sql: "DELETE FROM task_assignments WHERE user_id = ?", args: [userId] });
+}
+
+// back to a student — only for an account outside the teacher whitelist
+export async function makeStudent(userId: number) {
+  const { TEACHER_EMAILS } = await import("./roles");
+  const r = await db().execute({ sql: "SELECT email FROM users WHERE id = ?", args: [userId] });
+  const email = String(r.rows[0]?.email ?? "").toLowerCase();
+  if (!email || TEACHER_EMAILS.has(email)) return false;
+  await db().execute({ sql: "UPDATE users SET role = 'student' WHERE id = ?", args: [userId] });
+  return true;
+}
+
 export async function blockUser(userId: number) {
   await ensureApprovalColumns();
   await db().execute({

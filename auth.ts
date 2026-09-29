@@ -79,8 +79,10 @@ export const { handlers, auth, signIn, signOut, unstable_update: updateSession }
             await announcePendingAccount(email, user.name ?? null);
           }
         } else {
+          // the whitelist can promote, never demote: a teacher marked from the
+          // roster (another Google address of hers) stays a teacher
           await db().execute({
-            sql: "UPDATE users SET google_id = ?, role = ?, last_seen_at = ? WHERE email = ?",
+            sql: "UPDATE users SET google_id = ?, role = CASE WHEN role = 'teacher' THEN 'teacher' ELSE ? END, last_seen_at = ? WHERE email = ?",
             args: [googleId, role, now, email],
           });
         }
