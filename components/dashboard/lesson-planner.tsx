@@ -186,6 +186,17 @@ export function WheelBuilder({
   // on release it glides into its slot, and only then the order commits ----
   const rowRef = useRef<HTMLDivElement | null>(null);
   const [drag, setDrag] = useState<{ id: string; dx: number; over: number; settling: boolean } | null>(null);
+  // the reels always fit the row: more reels → narrower reels, never a
+  // hidden fourth reel off the edge of a phone
+  const [rowW, setRowW] = useState(0);
+  useEffect(() => {
+    const el = rowRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([entry]) => setRowW(entry.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+    // the row only exists once the plan has loaded — observe it then
+  }, [drums != null]);
   const dragStart = useRef<{ x: number; id: string; index: number; centers: number[]; gap: number; over: number } | null>(null);
   const settleTimer = useRef<number | null>(null);
   const drumsRef = useRef<Drum[] | null>(null);
@@ -276,6 +287,10 @@ export function WheelBuilder({
   if (!drums) return null;
   const total = drums.reduce((n, d) => n + KIND[d.kind].minutes, 0);
   const ready = drums.length > 0 && drums.every((d) => d.taskId != null);
+  const gapPx = mini ? 10 : 14;
+  const maxW = mini ? 118 : 156;
+  const drumW = rowW > 0 ? Math.max(64, Math.min(maxW, Math.floor((rowW - gapPx * (drums.length - 1)) / drums.length))) : maxW;
+  const compact = drumW < 96;
   const from = drag ? drums.findIndex((x) => x.id === drag.id) : -1;
   const gapNow = dragStart.current?.gap ?? 170;
   // how far (in slots, signed: + = towards later index = leftwards in RTL)
@@ -306,7 +321,7 @@ export function WheelBuilder({
         </div>
       )}
 
-      <div ref={rowRef} className={`flex overflow-x-auto ${mini ? "gap-2.5 px-1 pb-1 pt-1" : "-mx-1 gap-3.5 px-2 pb-3 pt-2"}`} style={{ scrollbarWidth: "none" }}>
+      <div ref={rowRef} className={`flex ${mini ? "pb-1 pt-1" : "pb-3 pt-2"}`} style={{ gap: gapPx }}>
         {drums.map((d, i) => {
           const isDragged = drag?.id === d.id;
           const shift = slotShift(i);
@@ -318,6 +333,8 @@ export function WheelBuilder({
               units={units}
               defaultTaskId={defaultFor(d.kind)}
               mini={mini}
+              width={drumW}
+              compact={compact}
               style={{
                 transform: isDragged
                   ? `translateX(${drag!.dx}px) ${lift ? `scale(1.06) rotate(${Math.max(-5, Math.min(5, -drag!.dx / 50))}deg)` : "scale(1)"}`
@@ -374,6 +391,8 @@ function DrumView({
   dragging,
   canRemove,
   mini,
+  width,
+  compact,
   onGripDown,
   onGripMove,
   onGripUp,
@@ -389,6 +408,8 @@ function DrumView({
   dragging: boolean;
   canRemove: boolean;
   mini: boolean;
+  width: number;
+  compact: boolean;
   onGripDown: (e: React.PointerEvent) => void;
   onGripMove: (e: React.PointerEvent) => void;
   onGripUp: () => void;
@@ -415,31 +436,32 @@ function DrumView({
   return (
     <div
       data-drum
-      className={`drum drum-in relative shrink-0 rounded-2xl border-2 bg-[color:var(--card)] ${mini ? "w-[118px]" : "w-[156px]"} ${dragging ? "dragging" : ""}`}
-      style={{ ...style, borderColor: tone, borderStyle: state === "ahead" ? "dashed" : "solid", filter: state === "done" ? "saturate(0.3)" : undefined }}
+      className={`drum drum-in relative min-w-0 shrink-0 rounded-2xl border-2 bg-[color:var(--card)] ${dragging ? "dragging" : ""}`}
+      style={{ ...style, width, borderColor: tone, borderStyle: state === "ahead" ? "dashed" : "solid", filter: state === "done" ? "saturate(0.3)" : undefined }}
     >
       <div
         onPointerDown={onGripDown}
         onPointerMove={onGripMove}
         onPointerUp={onGripUp}
         onPointerCancel={onGripUp}
-        className={`flex cursor-grab select-none items-center justify-between rounded-t-2xl text-white active:cursor-grabbing ${mini ? "px-2 py-1" : "px-2.5 py-2"}`}
+        className={`flex cursor-grab select-none items-center justify-between rounded-t-2xl text-white active:cursor-grabbing ${compact ? "gap-0.5 px-1.5 py-1" : mini ? "px-2 py-1" : "px-2.5 py-2"}`}
         style={{ background: tone, touchAction: "none", transition: "background 0.3s" }}
         title="גררי כדי לשנות סדר"
       >
-        <span className={`font-extrabold ${mini ? "text-xs" : "text-sm"}`}>
-          {state === "done" ? "✓ " : state === "ahead" ? "⏭ " : ""}
+        <span className={`truncate font-extrabold ${compact ? "text-[10px]" : mini ? "text-xs" : "text-sm"}`}>
+          {/* compact reels leave the ✓ / ⏭ to the ribbon — the word must fit */}
+          {compact ? "" : state === "done" ? "✓ " : state === "ahead" ? "⏭ " : ""}
           {k.emoji} {k.label}
         </span>
-        <span className="flex items-center gap-1">
-          <span aria-hidden className="text-[10px] tracking-[0.15em] opacity-70">⋮⋮</span>
+        <span className="flex shrink-0 items-center gap-1">
+          {!compact && <span aria-hidden className="text-[10px] tracking-[0.15em] opacity-70">⋮⋮</span>}
           {canRemove && (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onRemove(); }}
               onPointerDown={(e) => e.stopPropagation()}
               aria-label="להסיר גלגל"
-              className="flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-[11px] hover:bg-white/35"
+              className={`flex shrink-0 items-center justify-center rounded-full bg-white/20 hover:bg-white/35 ${compact ? "h-4 w-4 text-[9px]" : "h-5 w-5 text-[11px]"}`}
             >
               ✕
             </button>
@@ -465,6 +487,7 @@ function DrumView({
           index={index}
           accent={tone}
           mini={mini}
+          compact={compact}
           itemHeight={mini ? 40 : 46}
           height={mini ? 160 : 230}
           onReorderStart={onGripDown}

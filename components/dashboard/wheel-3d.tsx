@@ -28,6 +28,7 @@ export default function Wheel3D({
   onTapCentre,
   accent,
   itemHeight = 46,
+  compact = false,
   step = 20,
   height = 230,
   mini = false,
@@ -41,6 +42,7 @@ export default function Wheel3D({
   onTapCentre?: (i: number, x: number, y: number) => void;
   accent: string;
   itemHeight?: number;
+  compact?: boolean;
   step?: number; // degrees between detents
   height?: number;
   mini?: boolean;
@@ -317,7 +319,7 @@ export default function Wheel3D({
                 {it.state === "done" ? "✓ " : it.state === "ahead" ? "⏭ " : ""}
                 {it.num}
               </span>
-              <span className={`line-clamp-1 w-full font-semibold ${mini ? "px-1 text-[9px] leading-3" : "px-2 text-[10px] leading-3"}`} style={{ opacity: 0.55 + 0.45 * depth, textDecoration: it.state === "done" ? "line-through" : "none" }}>
+              <span className={`line-clamp-1 w-full font-semibold ${compact ? "px-0.5 text-[8px] leading-3" : mini ? "px-1 text-[9px] leading-3" : "px-2 text-[10px] leading-3"}`} style={{ opacity: 0.55 + 0.45 * depth, textDecoration: it.state === "done" ? "line-through" : "none" }}>
                 {it.label}
               </span>
             </div>
