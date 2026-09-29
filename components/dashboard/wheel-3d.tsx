@@ -31,6 +31,9 @@ export default function Wheel3D({
   step = 20,
   height = 230,
   mini = false,
+  onReorderStart,
+  onReorderMove,
+  onReorderEnd,
 }: {
   items: WheelItem[];
   index: number;
@@ -41,6 +44,11 @@ export default function Wheel3D({
   step?: number; // degrees between detents
   height?: number;
   mini?: boolean;
+  // a HORIZONTAL drag on the reel is handed to the parent (reordering the
+  // reels); a vertical one rolls. The axis is decided on the first real move.
+  onReorderStart?: (e: React.PointerEvent) => void;
+  onReorderMove?: (e: React.PointerEvent) => void;
+  onReorderEnd?: () => void;
 }) {
   const ITEM_H = itemHeight;
   const STEP = step;
@@ -135,13 +143,13 @@ export default function Wheel3D({
 
   useEffect(() => () => cancelAnim(), []);
 
-  // ---- drag ----
-  const drag = useRef<{ y: number; pos: number; t: number; v: number; moved: boolean } | null>(null);
+  // ---- drag: roll (vertical) or reorder (horizontal) ----
+  const drag = useRef<{ x: number; y: number; pos: number; t: number; v: number; moved: boolean; mode: "undecided" | "roll" | "reorder" } | null>(null);
   const onPointerDown = (e: React.PointerEvent) => {
     touched.current = true;
     cancelAnim();
     settled.current = false;
-    drag.current = { y: e.clientY, pos: posRef.current, t: performance.now(), v: 0, moved: false };
+    drag.current = { x: e.clientX, y: e.clientY, pos: posRef.current, t: performance.now(), v: 0, moved: false, mode: "undecided" };
     try {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     } catch {
@@ -151,6 +159,22 @@ export default function Wheel3D({
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current;
     if (!d) return;
+    if (d.mode === "undecided") {
+      const ax = Math.abs(e.clientX - d.x);
+      const ay = Math.abs(e.clientY - d.y);
+      if (ax < 6 && ay < 6) return;
+      if (ax > ay && onReorderStart) {
+        d.mode = "reorder";
+        settled.current = true;
+        onReorderStart(e);
+        return;
+      }
+      d.mode = "roll";
+    }
+    if (d.mode === "reorder") {
+      onReorderMove?.(e);
+      return;
+    }
     const now = performance.now();
     const p = d.pos - (e.clientY - d.y) / ITEM_H;
     const dt = Math.max(1, now - d.t);
@@ -163,6 +187,10 @@ export default function Wheel3D({
     const d = drag.current;
     drag.current = null;
     if (!d) return;
+    if (d.mode === "reorder") {
+      onReorderEnd?.();
+      return;
+    }
     if (!d.moved) {
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
       const offset = (e.clientY - (rect.top + rect.height / 2)) / ITEM_H;
@@ -287,11 +315,9 @@ export default function Wheel3D({
                 {it.state === "done" ? "✓ " : it.state === "ahead" ? "⏭ " : ""}
                 {it.num}
               </span>
-              {!mini && (
-                <span className="line-clamp-1 w-full px-2 text-[10px] font-semibold leading-3" style={{ opacity: 0.55 + 0.45 * depth, textDecoration: it.state === "done" ? "line-through" : "none" }}>
-                  {it.label}
-                </span>
-              )}
+              <span className={`line-clamp-1 w-full font-semibold ${mini ? "px-1 text-[9px] leading-3" : "px-2 text-[10px] leading-3"}`} style={{ opacity: 0.55 + 0.45 * depth, textDecoration: it.state === "done" ? "line-through" : "none" }}>
+                {it.label}
+              </span>
             </div>
           );
         })}

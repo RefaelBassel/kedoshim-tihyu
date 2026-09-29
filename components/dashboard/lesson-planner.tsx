@@ -187,6 +187,9 @@ export function WheelBuilder({
   const rowRef = useRef<HTMLDivElement | null>(null);
   const [drag, setDrag] = useState<{ id: string; dx: number; over: number; settling: boolean } | null>(null);
   const dragStart = useRef<{ x: number; id: string; index: number; centers: number[]; gap: number } | null>(null);
+  const settleTimer = useRef<number | null>(null);
+  const drumsRef = useRef<Drum[] | null>(null);
+  drumsRef.current = drums;
   const measure = () => {
     const kids = rowRef.current ? [...rowRef.current.querySelectorAll<HTMLElement>("[data-drum]")] : [];
     const rects = kids.map((k) => k.getBoundingClientRect());
@@ -195,6 +198,12 @@ export function WheelBuilder({
   };
   const onGripDown = (e: React.PointerEvent, id: string) => {
     if (!drums) return;
+    // a previous reorder still gliding home: land it now, then start fresh
+    if (settleTimer.current) {
+      window.clearTimeout(settleTimer.current);
+      settleTimer.current = null;
+      setDrag(null);
+    }
     const { centers, gap } = measure();
     dragStart.current = { x: e.clientX, id, index: drums.findIndex((d) => d.id === id), centers, gap };
     try {
@@ -233,10 +242,17 @@ export function WheelBuilder({
     // glide to the destination slot, then commit the order
     const toDx = s.centers[over] - s.centers[s.index];
     setDrag({ id: s.id, dx: toDx, over, settling: true });
-    window.setTimeout(() => {
-      const next = [...drums];
-      const [moved] = next.splice(s.index, 1);
-      next.splice(over, 0, moved);
+    settleTimer.current = window.setTimeout(() => {
+      settleTimer.current = null;
+      const cur = drumsRef.current ?? [];
+      const fromNow = cur.findIndex((d) => d.id === s.id);
+      if (fromNow < 0) {
+        setDrag(null);
+        return;
+      }
+      const next = [...cur];
+      const [moved] = next.splice(fromNow, 1);
+      next.splice(Math.min(over, next.length), 0, moved);
       setDrag(null);
       update(next);
       try {
@@ -320,7 +336,7 @@ export function WheelBuilder({
         >
           ▶ להתחיל את השיעור
         </button>
-        <span className={`text-[color:var(--primary)]/50 ${mini ? "text-[10px]" : "text-[11px]"}`}>~{total} דק׳ · ＋ עוד גלגל · גוררים בכותרת</span>
+        <span className={`text-[color:var(--primary)]/50 ${mini ? "text-[10px]" : "text-[11px]"}`}>~{total} דק׳ · מעלה-מטה מגלגל · לצדדים מסדר · ＋ עוד גלגל</span>
       </div>
     </section>
   );
@@ -375,7 +391,7 @@ function DrumView({
   return (
     <div
       data-drum
-      className={`drum drum-in relative shrink-0 rounded-2xl border-2 bg-[color:var(--card)] ${mini ? "w-[104px]" : "w-[156px]"} ${dragging ? "dragging" : ""}`}
+      className={`drum drum-in relative shrink-0 rounded-2xl border-2 bg-[color:var(--card)] ${mini ? "w-[118px]" : "w-[156px]"} ${dragging ? "dragging" : ""}`}
       style={{ ...style, borderColor: tone, borderStyle: state === "ahead" ? "dashed" : "solid", filter: state === "done" ? "saturate(0.3)" : undefined }}
     >
       <div
@@ -425,8 +441,11 @@ function DrumView({
           index={index}
           accent={tone}
           mini={mini}
-          itemHeight={mini ? 34 : 46}
-          height={mini ? 150 : 230}
+          itemHeight={mini ? 40 : 46}
+          height={mini ? 160 : 230}
+          onReorderStart={onGripDown}
+          onReorderMove={onGripMove}
+          onReorderEnd={onGripUp}
           onChange={(i) => {
             const u = units[i];
             if (u?.taskId != null && u.taskId !== drum.taskId) onSelect(u.taskId);
