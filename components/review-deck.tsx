@@ -255,14 +255,15 @@ export default function ReviewDeckPlayer({
           <div key={idx} className="absolute inset-0 overflow-y-auto">
             {slides[idx]}
           </div>
+          {/* Hebrew reads right to left: the previous slide is to the RIGHT, the next to the LEFT */}
           {idx > 0 && (
-            <button type="button" aria-label="השקף הקודם" onClick={(e) => { e.stopPropagation(); go(idx - 1); }} className="absolute end-3 top-1/2 -translate-y-1/2 rounded-full border bg-white/90 px-3 py-2 text-lg shadow-sm transition hover:scale-110" style={{ borderColor: "#e9ddd2", color: GRAPE }}>
-              ‹
+            <button type="button" aria-label="השקף הקודם" onClick={(e) => { e.stopPropagation(); go(idx - 1); }} className="absolute start-3 top-1/2 -translate-y-1/2 rounded-full border bg-white/90 px-3 py-2 text-lg shadow-sm transition hover:scale-110" style={{ borderColor: "#e9ddd2", color: GRAPE }}>
+              ›
             </button>
           )}
           {idx < count - 1 && (
-            <button type="button" aria-label="השקף הבא" onClick={(e) => { e.stopPropagation(); go(idx + 1); }} className="absolute start-3 top-1/2 -translate-y-1/2 rounded-full border bg-white/90 px-3 py-2 text-lg shadow-sm transition hover:scale-110" style={{ borderColor: "#e9ddd2", color: GRAPE }}>
-              ›
+            <button type="button" aria-label="השקף הבא" onClick={(e) => { e.stopPropagation(); go(idx + 1); }} className="absolute end-3 top-1/2 -translate-y-1/2 rounded-full border bg-white/90 px-3 py-2 text-lg shadow-sm transition hover:scale-110" style={{ borderColor: "#e9ddd2", color: GRAPE }}>
+              ‹
             </button>
           )}
         </div>
