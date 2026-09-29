@@ -4,17 +4,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LessonPlan, PlanBlock, BlockKind, UnitOverview } from "@/lib/lesson-plan";
 import Wheel3D, { type WheelItem } from "./wheel-3d";
 
-// מהלך השיעור — built around THE WHEELS: three slot reels (חזרה · דיון ·
+// מהלך השיעור — built around THE REELS: three slot reels (חזרה · דיון ·
 // לימוד), each rolled to a unit. They rest by default on the next unit not
-// yet done for that kind (after review 1, debate 1, study 2 → review 2,
-// debate 2, study 3). Rolling back lands on "already done" colours with a
-// gentle "again?" note; rolling ahead lands on "skipping ahead" colours.
-// "+" beside a reel adds another of its kind; reels drag to reorder; ▶
-// starts the lesson at once. `compact` = the floating sheet version (no
-// journey). Below on the page: the journey — every unit with its three
-// done-marks; tapping a unit opens a popover, never a page.
+// yet done for that kind. Rolling back lands on "already done" (grey,
+// ticked, stamped); rolling ahead on "skipping" (dashed amber, striped).
+// "+" beside a reel adds another of its kind; reels drag to reorder with a
+// real slide-into-place; ▶ starts the lesson at once. The same builder
+// renders full-size on the lesson page and mini in the floating dock on
+// every other teacher page.
 
-const KIND: Record<BlockKind, { emoji: string; label: string; minutes: number; color: string }> = {
+export const KIND: Record<BlockKind, { emoji: string; label: string; minutes: number; color: string }> = {
   review: { emoji: "🔁", label: "חזרה", minutes: 5, color: "#b96a3b" },
   discussion: { emoji: "💬", label: "דיון", minutes: 15, color: "#413055" },
   study: { emoji: "📖", label: "לימוד", minutes: 20, color: "#3e6b4f" },
@@ -28,7 +27,7 @@ interface Drum {
   taskId: number | null;
 }
 
-function doneFor(u: UnitOverview, kind: BlockKind): boolean {
+export function doneFor(u: UnitOverview, kind: BlockKind): boolean {
   if (kind === "review") return u.reviewed > 0;
   if (kind === "discussion") return u.discussed > 0;
   return u.studied > 0 || (u.assigned > 0 && u.complete >= Math.ceil(u.assigned * 0.6));
@@ -40,12 +39,13 @@ const doneWord: Record<BlockKind, string> = {
 };
 const unitNum = (u: UnitOverview, i: number) => u.position?.match(/משימה (\d+)/)?.[1] ?? String(i + 1);
 
-export default function LessonPlanner({ compact = false, onStarted }: { compact?: boolean; onStarted?: () => void }) {
+// ---------------------------------------------------------------------------
+// Data hook shared by the page and the dock
+// ---------------------------------------------------------------------------
+export function useLessonPlan() {
   const [plan, setPlan] = useState<LessonPlan | null>(null);
   const [units, setUnits] = useState<UnitOverview[]>([]);
   const [busy, setBusy] = useState(false);
-  const [popover, setPopover] = useState<{ unit: UnitOverview; x: number; y: number } | null>(null);
-
   const apply = (d: { ok?: boolean; plan?: LessonPlan; units?: UnitOverview[] }) => {
     if (!d.ok) return;
     if (d.plan) setPlan(d.plan);
@@ -59,9 +59,24 @@ export default function LessonPlanner({ compact = false, onStarted }: { compact?
   useEffect(() => {
     load();
     const iv = setInterval(load, 30000);
-    return () => clearInterval(iv);
+    const onChanged = () => {
+      // another instance (page ↔ dock) changed the plan
+      fetch("/api/lesson-plan", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.ok) {
+            if (d.plan) setPlan(d.plan);
+            if (d.units) setUnits(d.units);
+          }
+        })
+        .catch(() => {});
+    };
+    window.addEventListener("lesson-plan-changed", onChanged);
+    return () => {
+      clearInterval(iv);
+      window.removeEventListener("lesson-plan-changed", onChanged);
+    };
   }, [load]);
-
   const act = async (action: string) => {
     setBusy(true);
     try {
@@ -83,14 +98,18 @@ export default function LessonPlanner({ compact = false, onStarted }: { compact?
     });
     apply(await r.json());
   };
+  return { plan, units, busy, setBusy, act, persist };
+}
 
+// ---------------------------------------------------------------------------
+// The page
+// ---------------------------------------------------------------------------
+export default function LessonPlanner() {
+  const { plan, units, busy, setBusy, act, persist } = useLessonPlan();
+  const [popover, setPopover] = useState<{ unit: UnitOverview; x: number; y: number } | null>(null);
   const published = useMemo(() => units.filter((u) => u.taskId != null), [units]);
-
-  if (!plan) {
-    return <p className="p-6 text-center text-sm text-[color:var(--primary)]/60">טוען…</p>;
-  }
+  if (!plan) return <p className="p-6 text-center text-sm text-[color:var(--primary)]/60">טוען…</p>;
   const running = plan.current >= 0 && plan.blocks.length > 0;
-
   return (
     <div className="space-y-8" dir="rtl" onClick={() => setPopover(null)}>
       {running ? (
@@ -105,7 +124,6 @@ export default function LessonPlanner({ compact = false, onStarted }: { compact?
             try {
               await persist(blocks);
               await act("start");
-              onStarted?.();
             } finally {
               setBusy(false);
             }
@@ -114,32 +132,31 @@ export default function LessonPlanner({ compact = false, onStarted }: { compact?
           onShowUnit={(unit, x, y) => setPopover({ unit, x, y })}
         />
       )}
-
-      {!compact && <Journey units={units} onShowUnit={(unit, x, y) => setPopover({ unit, x, y })} />}
-
+      <Journey units={units} onShowUnit={(unit, x, y) => setPopover({ unit, x, y })} />
       {popover && <UnitPopover unit={popover.unit} x={popover.x} y={popover.y} onClose={() => setPopover(null)} />}
     </div>
   );
 }
 
-// =============================================================================
+// ---------------------------------------------------------------------------
 // The reels
-// =============================================================================
-
-function WheelBuilder({
+// ---------------------------------------------------------------------------
+export function WheelBuilder({
   units,
   savedBlocks,
   busy,
   onStart,
   onPersist,
   onShowUnit,
+  mini = false,
 }: {
   units: UnitOverview[];
   savedBlocks: PlanBlock[];
   busy: boolean;
   onStart: (blocks: PlanBlock[]) => Promise<void>;
   onPersist: (blocks: PlanBlock[]) => Promise<void>;
-  onShowUnit: (u: UnitOverview, x: number, y: number) => void;
+  onShowUnit?: (u: UnitOverview, x: number, y: number) => void;
+  mini?: boolean;
 }) {
   const defaultFor = useCallback(
     (kind: BlockKind): number | null => {
@@ -151,13 +168,8 @@ function WheelBuilder({
   const [drums, setDrums] = useState<Drum[] | null>(null);
   useEffect(() => {
     if (drums != null || units.length === 0) return;
-    if (savedBlocks.length > 0) {
-      setDrums(savedBlocks.map((b, i) => ({ id: `d${i}-${b.kind}`, kind: b.kind, taskId: b.taskId })));
-    } else {
-      setDrums(
-        (["review", "discussion", "study"] as BlockKind[]).map((kind, i) => ({ id: `d${i}-${kind}`, kind, taskId: defaultFor(kind) }))
-      );
-    }
+    if (savedBlocks.length > 0) setDrums(savedBlocks.map((b, i) => ({ id: `d${i}-${b.kind}`, kind: b.kind, taskId: b.taskId })));
+    else setDrums((["review", "discussion", "study"] as BlockKind[]).map((kind, i) => ({ id: `d${i}-${kind}`, kind, taskId: defaultFor(kind) })));
   }, [units, savedBlocks, drums, defaultFor]);
 
   const saveTimer = useRef<number | null>(null);
@@ -169,87 +181,116 @@ function WheelBuilder({
     saveTimer.current = window.setTimeout(() => void onPersist(toBlocks(next)), 600);
   };
 
-  // ---- drag a reel to reorder (pointer based: touch + mouse) ----
+  // ---- drag a reel to reorder: the dragged reel follows the pointer 1:1
+  // and lifts; the others slide into their new slots as it crosses them;
+  // on release it glides into its slot, and only then the order commits ----
   const rowRef = useRef<HTMLDivElement | null>(null);
-  const [drag, setDrag] = useState<{ id: string; dx: number; over: number } | null>(null);
-  const dragStart = useRef<{ x: number; id: string; index: number; widths: number[] } | null>(null);
+  const [drag, setDrag] = useState<{ id: string; dx: number; over: number; settling: boolean } | null>(null);
+  const dragStart = useRef<{ x: number; id: string; index: number; centers: number[]; gap: number } | null>(null);
+  const measure = () => {
+    const kids = rowRef.current ? [...rowRef.current.querySelectorAll<HTMLElement>("[data-drum]")] : [];
+    const rects = kids.map((k) => k.getBoundingClientRect());
+    const gap = rects.length > 1 ? Math.abs(rects[1].left - rects[0].left) : 170;
+    return { centers: rects.map((r) => r.left + r.width / 2), gap };
+  };
   const onGripDown = (e: React.PointerEvent, id: string) => {
-    if (!drums || !rowRef.current) return;
-    const kids = [...rowRef.current.querySelectorAll<HTMLElement>("[data-drum]")];
-    dragStart.current = { x: e.clientX, id, index: drums.findIndex((d) => d.id === id), widths: kids.map((k) => k.getBoundingClientRect().width + 14) };
+    if (!drums) return;
+    const { centers, gap } = measure();
+    dragStart.current = { x: e.clientX, id, index: drums.findIndex((d) => d.id === id), centers, gap };
     try {
       (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     } catch {
       /* synthetic pointer */
     }
-    setDrag({ id, dx: 0, over: dragStart.current.index });
+    setDrag({ id, dx: 0, over: dragStart.current.index, settling: false });
   };
   const onGripMove = (e: React.PointerEvent) => {
     const s = dragStart.current;
     if (!s || !drums) return;
-    const dx = e.clientX - s.x; // RTL: left = later index
+    const dx = e.clientX - s.x;
+    const x = s.centers[s.index] + dx;
+    // the slot whose centre is nearest to the dragged reel's centre
     let over = s.index;
-    let acc = 0;
-    const step = s.widths[s.index] || 1;
-    if (dx < 0) while (over < drums.length - 1 && -dx > acc + step / 2) { acc += s.widths[over + 1] || step; over += 1; }
-    else while (over > 0 && dx > acc + step / 2) { acc += s.widths[over - 1] || step; over -= 1; }
-    setDrag({ id: s.id, dx, over });
+    let best = Infinity;
+    s.centers.forEach((c, i) => {
+      const d = Math.abs(c - x);
+      if (d < best) {
+        best = d;
+        over = i;
+      }
+    });
+    setDrag({ id: s.id, dx, over, settling: false });
   };
   const onGripUp = () => {
     const s = dragStart.current;
     if (!s || !drums) return;
     const over = drag?.over ?? s.index;
     dragStart.current = null;
-    setDrag(null);
-    if (over !== s.index) {
+    if (over === s.index) {
+      setDrag(null);
+      return;
+    }
+    // glide to the destination slot, then commit the order
+    const toDx = s.centers[over] - s.centers[s.index];
+    setDrag({ id: s.id, dx: toDx, over, settling: true });
+    window.setTimeout(() => {
       const next = [...drums];
       const [moved] = next.splice(s.index, 1);
       next.splice(over, 0, moved);
+      setDrag(null);
       update(next);
       try {
         navigator.vibrate?.(10);
       } catch {
         /* no haptics */
       }
-    }
+    }, 240);
   };
 
   if (!drums) return null;
   const total = drums.reduce((n, d) => n + KIND[d.kind].minutes, 0);
   const ready = drums.length > 0 && drums.every((d) => d.taskId != null);
+  const from = drag ? drums.findIndex((x) => x.id === drag.id) : -1;
+  const slotShift = (i: number) => {
+    if (!drag || i === from) return 0;
+    const gap = dragStart.current?.gap ?? 170;
+    // RTL row: a later index sits further LEFT, so sliding to a later slot is a negative x
+    if (from < drag.over && i > from && i <= drag.over) return gap; // moves right
+    if (from > drag.over && i >= drag.over && i < from) return -gap; // moves left
+    return 0;
+  };
 
   return (
-    <section className="rounded-3xl border-2 border-[color:var(--accent)]/50 bg-[color:var(--card)] p-3 shadow-sm sm:p-5">
-      <div className="mb-2 flex items-center justify-between px-1">
-        <p className="font-display text-xl font-extrabold text-[color:var(--primary)]">🎰 השיעור של היום</p>
-        <span className="rounded-full bg-[color:var(--background)] px-3 py-1 text-xs font-bold text-[color:var(--primary)]/70">~{total} דק׳</span>
-      </div>
+    <section className={mini ? "" : "rounded-3xl border-2 border-[color:var(--accent)]/50 bg-[color:var(--card)] p-3 shadow-sm sm:p-5"}>
+      {!mini && (
+        <div className="mb-2 flex items-center justify-between px-1">
+          <p className="font-display text-xl font-extrabold text-[color:var(--primary)]">🎰 השיעור של היום</p>
+          <span className="rounded-full bg-[color:var(--background)] px-3 py-1 text-xs font-bold text-[color:var(--primary)]/70">~{total} דק׳</span>
+        </div>
+      )}
 
-      <div ref={rowRef} className="-mx-1 flex snap-x gap-3.5 overflow-x-auto px-2 pb-3 pt-2" style={{ scrollbarWidth: "none" }}>
+      <div ref={rowRef} className={`flex overflow-x-auto ${mini ? "gap-2.5 px-1 pb-1 pt-1" : "-mx-1 gap-3.5 px-2 pb-3 pt-2"}`} style={{ scrollbarWidth: "none" }}>
         {drums.map((d, i) => {
           const isDragged = drag?.id === d.id;
-          let shift = 0;
-          if (drag && !isDragged) {
-            const from = drums.findIndex((x) => x.id === drag.id);
-            const to = drag.over;
-            const w = (rowRef.current?.querySelectorAll<HTMLElement>("[data-drum]")[from]?.getBoundingClientRect().width ?? 150) + 14;
-            if (from < to && i > from && i <= to) shift = w;
-            if (from > to && i >= to && i < from) shift = -w;
-          }
+          const shift = slotShift(i);
+          const lift = isDragged && !drag!.settling;
           return (
             <DrumView
               key={d.id}
               drum={d}
               units={units}
               defaultTaskId={defaultFor(d.kind)}
+              mini={mini}
               style={{
                 transform: isDragged
-                  ? `translateX(${drag!.dx}px) scale(1.04) rotate(${Math.max(-4, Math.min(4, -drag!.dx / 60))}deg)`
+                  ? `translateX(${drag!.dx}px) ${lift ? `scale(1.06) rotate(${Math.max(-5, Math.min(5, -drag!.dx / 50))}deg)` : "scale(1)"}`
                   : shift
                     ? `translateX(${shift}px)`
                     : undefined,
+                transition: isDragged && !drag!.settling ? "box-shadow 0.2s" : "transform 0.26s cubic-bezier(0.34, 1.3, 0.64, 1), box-shadow 0.2s, filter 0.35s, border-color 0.35s",
+                zIndex: isDragged ? 30 : undefined,
               }}
-              dragging={isDragged}
+              dragging={lift}
               canRemove={drums.length > 1}
               onGripDown={(e) => onGripDown(e, d.id)}
               onGripMove={onGripMove}
@@ -270,16 +311,16 @@ function WheelBuilder({
         })}
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-3 px-1">
+      <div className={`flex flex-wrap items-center justify-between gap-2 ${mini ? "mt-1.5 px-1" : "mt-2 px-1"}`}>
         <button
           type="button"
           disabled={busy || !ready}
           onClick={() => onStart(toBlocks(drums))}
-          className="rounded-full bg-[color:var(--accent)] px-7 py-3 text-base font-extrabold text-white shadow-lg transition hover:scale-[1.03] active:scale-95 disabled:opacity-40 disabled:hover:scale-100"
+          className={`rounded-full bg-[color:var(--accent)] font-extrabold text-white shadow-lg transition hover:scale-[1.03] active:scale-95 disabled:opacity-40 disabled:hover:scale-100 ${mini ? "px-5 py-2 text-sm" : "px-7 py-3 text-base"}`}
         >
           ▶ להתחיל את השיעור
         </button>
-        <p className="text-[11px] leading-5 text-[color:var(--primary)]/50">מגלגלים · ＋ עוד גלגל · גוררים בכותרת לסדר</p>
+        <span className={`text-[color:var(--primary)]/50 ${mini ? "text-[10px]" : "text-[11px]"}`}>~{total} דק׳ · ＋ עוד גלגל · גוררים בכותרת</span>
       </div>
     </section>
   );
@@ -292,6 +333,7 @@ function DrumView({
   style,
   dragging,
   canRemove,
+  mini,
   onGripDown,
   onGripMove,
   onGripUp,
@@ -306,13 +348,14 @@ function DrumView({
   style?: React.CSSProperties;
   dragging: boolean;
   canRemove: boolean;
+  mini: boolean;
   onGripDown: (e: React.PointerEvent) => void;
   onGripMove: (e: React.PointerEvent) => void;
   onGripUp: () => void;
   onSelect: (taskId: number) => void;
   onAddSame: () => void;
   onRemove: () => void;
-  onShowUnit: (u: UnitOverview, x: number, y: number) => void;
+  onShowUnit?: (u: UnitOverview, x: number, y: number) => void;
 }) {
   const k = KIND[drum.kind];
   const defaultIdx = units.findIndex((u) => u.taskId === defaultTaskId);
@@ -320,39 +363,31 @@ function DrumView({
   const selected = units[index];
   const selectedDone = selected ? doneFor(selected, drum.kind) : false;
   const selectedAhead = defaultIdx >= 0 && index > defaultIdx;
-  const tone = selectedDone ? DONE_COLOR : selectedAhead ? AHEAD_COLOR : k.color;
+  const state: "done" | "ahead" | "next" = selectedDone ? "done" : selectedAhead ? "ahead" : "next";
+  const tone = state === "done" ? DONE_COLOR : state === "ahead" ? AHEAD_COLOR : k.color;
 
   const items: WheelItem[] = units.map((u, i) => {
     const done = doneFor(u, drum.kind);
     const ahead = defaultIdx >= 0 && i > defaultIdx;
-    return {
-      key: `${drum.id}-${u.ref}`,
-      num: unitNum(u, i),
-      label: shortTitle(u.title),
-      tone: done ? DONE_COLOR : ahead ? AHEAD_COLOR : k.color,
-      done,
-      state: done ? "done" : ahead ? "ahead" : "next",
-    } as WheelItem;
+    return { key: `${drum.id}-${u.ref}`, num: unitNum(u, i), label: shortTitle(u.title), tone: done ? DONE_COLOR : ahead ? AHEAD_COLOR : k.color, done, state: done ? "done" : ahead ? "ahead" : "next" };
   });
-  const state: "done" | "ahead" | "next" = selectedDone ? "done" : selectedAhead ? "ahead" : "next";
 
   return (
     <div
       data-drum
-      className={`drum drum-in relative w-[156px] shrink-0 snap-center rounded-2xl border-2 bg-[color:var(--card)] ${dragging ? "dragging" : ""} drum-${state}`}
-      style={{ ...style, borderColor: tone, borderStyle: state === "ahead" ? "dashed" : "solid", filter: state === "done" ? "saturate(0.35)" : "none", transition: "filter 0.35s, border-color 0.35s, transform 0.28s cubic-bezier(0.22, 1, 0.36, 1)" }}
+      className={`drum drum-in relative shrink-0 rounded-2xl border-2 bg-[color:var(--card)] ${mini ? "w-[104px]" : "w-[156px]"} ${dragging ? "dragging" : ""}`}
+      style={{ ...style, borderColor: tone, borderStyle: state === "ahead" ? "dashed" : "solid", filter: state === "done" ? "saturate(0.3)" : undefined }}
     >
-      {/* header = grip */}
       <div
         onPointerDown={onGripDown}
         onPointerMove={onGripMove}
         onPointerUp={onGripUp}
         onPointerCancel={onGripUp}
-        className="flex cursor-grab select-none items-center justify-between rounded-t-2xl px-2.5 py-2 text-white active:cursor-grabbing"
+        className={`flex cursor-grab select-none items-center justify-between rounded-t-2xl text-white active:cursor-grabbing ${mini ? "px-2 py-1" : "px-2.5 py-2"}`}
         style={{ background: tone, touchAction: "none", transition: "background 0.3s" }}
         title="גררי כדי לשנות סדר"
       >
-        <span className="text-sm font-extrabold">
+        <span className={`font-extrabold ${mini ? "text-xs" : "text-sm"}`}>
           {state === "done" ? "✓ " : state === "ahead" ? "⏭ " : ""}
           {k.emoji} {k.label}
         </span>
@@ -372,52 +407,45 @@ function DrumView({
         </span>
       </div>
 
-      {/* the reel */}
-      <div
-        className="relative rounded-b-xl"
-        style={{
-          background:
-            state === "ahead"
-              ? "repeating-linear-gradient(135deg, #fbf1dc 0 10px, #f6e6c2 10px 20px)"
-              : state === "done"
-                ? "linear-gradient(to bottom, #e6e4df, #f4f2ee 50%, #e6e4df)"
-                : "linear-gradient(to bottom, #efe9e2, #fffdfa 50%, #efe9e2)",
-          transition: "background 0.35s",
-        }}
-      >
+      <div className="relative">
         {state !== "next" && (
           <span
             aria-hidden
-            className="warn-in pointer-events-none absolute -end-6 top-5 z-30 rotate-45 px-8 py-0.5 text-[10px] font-extrabold text-white shadow"
+            className={`warn-in pointer-events-none absolute z-30 rotate-45 font-extrabold text-white shadow ${mini ? "-end-5 top-3 px-6 text-[8px]" : "-end-6 top-5 px-8 py-0.5 text-[10px]"}`}
             style={{ background: state === "done" ? DONE_COLOR : AHEAD_COLOR }}
           >
             {state === "done" ? "נעשה ✓" : "⏭ דילוג"}
           </span>
         )}
+        {state === "ahead" && (
+          <div aria-hidden className="pointer-events-none absolute inset-0 z-[15] opacity-40" style={{ background: "repeating-linear-gradient(135deg, transparent 0 10px, #b3892b55 10px 20px)" }} />
+        )}
         <Wheel3D
           items={items}
           index={index}
           accent={tone}
+          mini={mini}
+          itemHeight={mini ? 34 : 46}
+          height={mini ? 150 : 230}
           onChange={(i) => {
             const u = units[i];
             if (u?.taskId != null && u.taskId !== drum.taskId) onSelect(u.taskId);
           }}
-          onTapCentre={(i, x, y) => onShowUnit(units[i], x, y)}
+          onTapCentre={(i, x, y) => onShowUnit?.(units[i], x, y)}
         />
       </div>
 
-      {/* under the reel: state */}
-      <div className="min-h-[34px] px-2 pb-2 pt-1 text-center">
-        {selectedDone ? (
-          <p key="done" className="warn-in rounded-lg px-1.5 py-1 text-[10px] font-bold leading-4" style={{ background: `${DONE_COLOR}22`, color: "#5c5c52" }}>
+      <div className={`text-center ${mini ? "min-h-[26px] px-1 pb-1 pt-0.5" : "min-h-[34px] px-2 pb-2 pt-1"}`}>
+        {state === "done" ? (
+          <p key="done" className={`warn-in rounded-lg px-1 py-0.5 font-bold leading-4 ${mini ? "text-[9px]" : "text-[10px]"}`} style={{ background: `${DONE_COLOR}22`, color: "#5c5c52" }}>
             {doneWord[drum.kind]} · שוב?
           </p>
-        ) : selectedAhead ? (
-          <p key="ahead" className="warn-in rounded-lg px-1.5 py-1 text-[10px] font-bold leading-4" style={{ background: `${AHEAD_COLOR}22`, color: "#7a5b12" }}>
+        ) : state === "ahead" ? (
+          <p key="ahead" className={`warn-in rounded-lg px-1 py-0.5 font-bold leading-4 ${mini ? "text-[9px]" : "text-[10px]"}`} style={{ background: `${AHEAD_COLOR}22`, color: "#7a5b12" }}>
             מדלגים קדימה
           </p>
         ) : (
-          <p key="next" className="text-[10px] font-semibold leading-4" style={{ color: k.color }}>הבאה בתור ✓</p>
+          <p key="next" className={`font-semibold leading-4 ${mini ? "text-[9px]" : "text-[10px]"}`} style={{ color: k.color }}>הבאה בתור ✓</p>
         )}
       </div>
 
@@ -426,7 +454,7 @@ function DrumView({
         onClick={onAddSame}
         aria-label={`עוד ${k.label}`}
         title={`עוד ${k.label}`}
-        className="absolute -start-3.5 top-[46%] z-20 flex h-8 w-8 items-center justify-center rounded-full border-2 bg-[color:var(--card)] text-base font-extrabold shadow-md transition hover:scale-110 active:scale-90"
+        className={`absolute top-[46%] z-20 flex items-center justify-center rounded-full border-2 bg-[color:var(--card)] font-extrabold shadow-md transition hover:scale-110 active:scale-90 ${mini ? "-start-3 h-6 w-6 text-sm" : "-start-3.5 h-8 w-8 text-base"}`}
         style={{ borderColor: k.color, color: k.color }}
       >
         ＋
@@ -435,14 +463,13 @@ function DrumView({
   );
 }
 
-// =============================================================================
-// Running bar — the strip's twin
-// =============================================================================
-
-function RunningBar({ plan, busy, act }: { plan: LessonPlan; busy: boolean; act: (a: string) => Promise<void> }) {
+// ---------------------------------------------------------------------------
+// Running bar
+// ---------------------------------------------------------------------------
+export function RunningBar({ plan, busy, act, mini = false }: { plan: LessonPlan; busy: boolean; act: (a: string) => Promise<void>; mini?: boolean }) {
   return (
-    <section className="rounded-3xl border-2 border-[color:var(--accent)] bg-[color:var(--card)] p-4 sm:p-5">
-      <p className="mb-3 font-display text-xl font-extrabold text-[color:var(--primary)]">▶ השיעור רץ</p>
+    <section className={mini ? "" : "rounded-3xl border-2 border-[color:var(--accent)] bg-[color:var(--card)] p-4 sm:p-5"}>
+      {!mini && <p className="mb-3 font-display text-xl font-extrabold text-[color:var(--primary)]">▶ השיעור רץ</p>}
       <ol className="flex flex-wrap items-center gap-2">
         {plan.blocks.map((b, i) => {
           const k = KIND[b.kind];
@@ -451,33 +478,32 @@ function RunningBar({ plan, busy, act }: { plan: LessonPlan; busy: boolean; act:
           return (
             <li
               key={`${b.kind}-${b.taskId}-${i}`}
-              className={`flex items-center gap-2 rounded-full border-2 px-3 py-1.5 text-sm font-bold transition ${done ? "opacity-45 line-through" : ""} ${isNow ? "scale-105 shadow-md" : ""}`}
+              className={`flex items-center gap-2 rounded-full border-2 font-bold transition ${mini ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm"} ${done ? "opacity-45 line-through" : ""} ${isNow ? "scale-105 shadow-md" : ""}`}
               style={{ borderColor: k.color, background: isNow ? k.color : `${k.color}14`, color: isNow ? "#fff" : k.color }}
               title={b.title}
             >
               {i + 1}. {k.emoji} {k.label}
-              <span className={`max-w-[140px] truncate text-xs font-semibold ${isNow ? "text-white/85" : "opacity-70"}`}>{shortTitle(b.title)}</span>
+              {!mini && <span className={`max-w-[140px] truncate text-xs font-semibold ${isNow ? "text-white/85" : "opacity-70"}`}>{shortTitle(b.title)}</span>}
             </li>
           );
         })}
       </ol>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button type="button" disabled={busy || plan.current === 0} onClick={() => act("prev")} className="rounded-full border border-[color:var(--border)] px-4 py-1.5 text-xs font-bold text-[color:var(--primary)] active:scale-95 disabled:opacity-40">→ הקודם</button>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button type="button" disabled={busy || plan.current === 0} onClick={() => act("prev")} className="rounded-full border border-[color:var(--border)] px-3 py-1 text-xs font-bold text-[color:var(--primary)] active:scale-95 disabled:opacity-40">→ הקודם</button>
         {plan.current < plan.blocks.length - 1 ? (
-          <button type="button" disabled={busy} onClick={() => act("next")} className="rounded-full bg-[color:var(--accent)] px-5 py-1.5 text-sm font-bold text-white shadow active:scale-95 disabled:opacity-40">הבא ←</button>
+          <button type="button" disabled={busy} onClick={() => act("next")} className="rounded-full bg-[color:var(--accent)] px-4 py-1 text-sm font-bold text-white shadow active:scale-95 disabled:opacity-40">הבא ←</button>
         ) : (
-          <button type="button" disabled={busy} onClick={() => act("stop")} className="rounded-full bg-[color:var(--success)] px-5 py-1.5 text-sm font-bold text-white shadow active:scale-95 disabled:opacity-40">✓ סיום השיעור</button>
+          <button type="button" disabled={busy} onClick={() => act("stop")} className="rounded-full bg-[color:var(--success)] px-4 py-1 text-sm font-bold text-white shadow active:scale-95 disabled:opacity-40">✓ סיום השיעור</button>
         )}
-        <button type="button" disabled={busy} onClick={() => act("cancel")} className="ms-auto text-[11px] font-semibold text-[color:var(--primary)]/50 hover:text-[color:var(--danger)]">לעצור ולתכנן מחדש</button>
+        <button type="button" disabled={busy} onClick={() => act("cancel")} className="ms-auto text-[10px] font-semibold text-[color:var(--primary)]/50 hover:text-[color:var(--danger)]">לעצור ולתכנן מחדש</button>
       </div>
     </section>
   );
 }
 
-// =============================================================================
+// ---------------------------------------------------------------------------
 // The journey
-// =============================================================================
-
+// ---------------------------------------------------------------------------
 function Journey({ units, onShowUnit }: { units: UnitOverview[]; onShowUnit: (u: UnitOverview, x: number, y: number) => void }) {
   return (
     <section>
@@ -505,12 +531,7 @@ function Journey({ units, onShowUnit }: { units: UnitOverview[]; onShowUnit: (u:
                   {(["review", "discussion", "study"] as BlockKind[]).map((kind) => {
                     const on = published && doneFor(u, kind);
                     return (
-                      <span
-                        key={kind}
-                        className="flex h-8 w-8 items-center justify-center rounded-full text-sm transition"
-                        style={{ background: on ? `${KIND[kind].color}22` : "var(--background)", border: `1.5px solid ${on ? KIND[kind].color : "var(--border)"}`, opacity: on ? 1 : 0.35, filter: on ? "none" : "grayscale(1)" }}
-                        title={`${KIND[kind].label}: ${on ? "נעשה ✓" : "עוד לא"}`}
-                      >
+                      <span key={kind} className="flex h-8 w-8 items-center justify-center rounded-full text-sm transition" style={{ background: on ? `${KIND[kind].color}22` : "var(--background)", border: `1.5px solid ${on ? KIND[kind].color : "var(--border)"}`, opacity: on ? 1 : 0.35, filter: on ? "none" : "grayscale(1)" }} title={`${KIND[kind].label}: ${on ? "נעשה ✓" : "עוד לא"}`}>
                         {KIND[kind].emoji}
                       </span>
                     );
@@ -525,17 +546,16 @@ function Journey({ units, onShowUnit }: { units: UnitOverview[]; onShowUnit: (u:
   );
 }
 
-// =============================================================================
+// ---------------------------------------------------------------------------
 // Unit popover — details + tools, no page change
-// =============================================================================
-
-function UnitPopover({ unit, x, y, onClose }: { unit: UnitOverview; x: number; y: number; onClose: () => void }) {
+// ---------------------------------------------------------------------------
+export function UnitPopover({ unit, x, y, onClose }: { unit: UnitOverview; x: number; y: number; onClose: () => void }) {
   const w = Math.min(340, typeof window !== "undefined" ? window.innerWidth - 24 : 340);
   const left = typeof window !== "undefined" ? Math.max(12, Math.min(x - w / 2, window.innerWidth - w - 12)) : 12;
-  const top = typeof window !== "undefined" ? Math.min(y + 12, window.innerHeight - 280) : y;
+  const top = typeof window !== "undefined" ? Math.max(12, Math.min(y - 300, window.innerHeight - 320)) : y;
   const pct = unit.assigned ? Math.round((100 * unit.complete) / unit.assigned) : 0;
   return (
-    <div className="note-pop fixed z-[90] rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-4 shadow-2xl" style={{ left, top, width: w }} dir="rtl" onClick={(e) => e.stopPropagation()}>
+    <div className="note-pop fixed z-[95] rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-4 shadow-2xl" style={{ left, top, width: w }} dir="rtl" onClick={(e) => e.stopPropagation()}>
       <div className="mb-1 flex items-start justify-between gap-2">
         <p className="font-display text-base font-extrabold leading-snug text-[color:var(--primary)]">{unit.title}</p>
         <button type="button" onClick={onClose} aria-label="סגירה" className="shrink-0 text-xs text-[color:var(--primary)]/50">✕</button>

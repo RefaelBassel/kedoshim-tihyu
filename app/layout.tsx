@@ -3,6 +3,7 @@ import { Heebo, Assistant, David_Libre } from "next/font/google";
 import "./globals.css";
 import InstallPrompt from "@/components/pwa/install-prompt";
 import RememberLastPath from "@/components/pwa/remember-last-path";
+import LessonDock from "@/components/lesson-dock";
 
 const heebo = Heebo({
   variable: "--font-heebo",
@@ -45,7 +46,21 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  // the floating lesson dock follows the TEACHER to every page (she may be
+  // anywhere on the site when the lesson needs steering) — never in student
+  // mode, never for students. The dock hides itself on projector screens.
+  let showDock = false;
+  try {
+    const { auth } = await import("@/auth");
+    const session = await auth();
+    if (session?.user?.role === "teacher") {
+      const { isStudentMode } = await import("@/lib/student-mode");
+      showDock = !(await isStudentMode());
+    }
+  } catch {
+    showDock = false;
+  }
   return (
     <html
       lang="he"
@@ -73,6 +88,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           </div>
         </footer>
         <InstallPrompt />
+        {showDock && <LessonDock />}
       </body>
     </html>
   );

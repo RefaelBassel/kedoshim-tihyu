@@ -3,7 +3,6 @@ import { redirect, notFound } from "next/navigation";
 import TopNav from "@/components/top-nav";
 import ClassPulseDrawer from "@/components/class-pulse-drawer";
 import LessonStrip from "@/components/lesson-strip";
-import LessonFab from "@/components/lesson-fab";
 import ReflectionDrawer from "@/components/reflection-drawer";
 import TaskRunner from "@/components/task/task-runner";
 import PrintLinks from "@/components/task/print-links";
@@ -98,7 +97,6 @@ export default async function TaskPage({
       {/* teacher tooling stays hidden in student mode — the whole point of
           that mode is experiencing the site exactly as a student does */}
       {canEditContent && <LessonStrip />}
-      {canEditContent && <LessonFab />}
       {canEditContent && <ClassPulseDrawer taskId={taskId} />}
       {!guest && (
         <ReflectionDrawer

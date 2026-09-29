@@ -100,10 +100,15 @@ discussion, review — lib/content-overrides.ts, `/dashboard/content`. Rule from
 a projected board never contains teacher input; the control is a separate page.
 
 ## Lesson page, editability, Claude assist (28.9.2026)
-- `/dashboard/lesson` (nav: "מהלך השיעור") is ONE screen: today's plan as chips (add a block
-  from a unit row, reorder, ▶) + the journey (every unit, learned/debated status, completion,
-  the three tools on the row). Started plans drive `components/lesson-strip.tsx` on every
-  teacher page. State: lib/lesson-plan.ts (lesson_plans). Never put lesson tools under a task.
+- `/dashboard/lesson` (nav: "מהלך השיעור") is ONE screen built around THE REELS
+  (`components/dashboard/wheel-3d.tsx` — a real turning cylinder with skin grooves, momentum,
+  detents): three reels חזרה/דיון/לימוד resting on the next unit not yet done for that kind
+  (unit_events + completion), grey/stamped when rolled back to a done unit, dashed amber when
+  skipping ahead; '+' adds a reel, reels drag to reorder with slide-into-place, ▶ starts.
+  The same reels float as a mini DOCK at the bottom of every teacher page
+  (`components/lesson-dock.tsx`, mounted once in app/layout.tsx; hidden on projector screens
+  and on the lesson page). Started plans drive `components/lesson-strip.tsx`. State:
+  lib/lesson-plan.ts (lesson_plans, unit_events). Never put lesson tools under a task.
 - Everything textual on a unit is teacher-editable in place and on `/dashboard/content/[ref]`:
   worksheet questions (hide/reword/add), section titles/minutes, intro/case/source/art texts,
   unit title/subtitle/readingIntro (`unit` override), discussion question, review deck.

@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-// A real slot-machine reel: the items sit on the surface of a cylinder that
-// turns around a horizontal axis (perspective + rotateX + translateZ), so
-// they curve away and darken towards the top and bottom edges. It rolls
-// both ways by dragging (touch or mouse), by the mouse wheel, by tapping an
-// item above or below, or with the arrow keys — with momentum, friction and
-// a soft click-stop on each detent (and a short vibration on phones).
+// A real slot-machine reel. The items sit on the surface of a cylinder that
+// turns around a horizontal axis (perspective + rotateX + translateZ). The
+// cylinder has a SKIN — grooves all around it that turn with the items, so
+// the drum is visibly rolling even where no item sits — and body lighting:
+// a highlight at the front, darkening towards the rims. It rolls both ways
+// by dragging (touch or mouse) with momentum, friction and click-stops, by
+// the mouse wheel, by tapping an item above or below, or with arrow keys.
 
 export interface WheelItem {
   key: string;
@@ -20,27 +21,31 @@ export interface WheelItem {
   state?: "done" | "ahead" | "next";
 }
 
-const ITEM_H = 46; // px between detents on the front face
-const STEP = 22; // degrees between items on the cylinder
-const RADIUS = ITEM_H / 2 / Math.tan((STEP / 2) * (Math.PI / 180)); // ≈118px
-const VISIBLE = 80; // degrees either side that still render
-
 export default function Wheel3D({
   items,
   index,
   onChange,
   onTapCentre,
   accent,
-  height = 220,
+  itemHeight = 46,
+  step = 20,
+  height = 230,
+  mini = false,
 }: {
   items: WheelItem[];
   index: number;
   onChange: (i: number) => void;
   onTapCentre?: (i: number, x: number, y: number) => void;
   accent: string;
+  itemHeight?: number;
+  step?: number; // degrees between detents
   height?: number;
+  mini?: boolean;
 }) {
-  const [pos, setPos] = useState(index); // continuous position in item units
+  const ITEM_H = itemHeight;
+  const STEP = step;
+  const RADIUS = ITEM_H / 2 / Math.tan((STEP / 2) * (Math.PI / 180));
+  const [pos, setPos] = useState(index);
   const posRef = useRef(index);
   const raf = useRef<number | null>(null);
   const lastDetent = useRef(Math.round(index));
@@ -49,34 +54,30 @@ export default function Wheel3D({
 
   // haptics only after a real touch/drag — browsers block it before a gesture
   const touched = useRef(false);
-  const set = useCallback((p: number) => {
-    posRef.current = p;
-    setPos(p);
-    const d = Math.round(p);
-    if (d !== lastDetent.current && d >= 0 && d <= max) {
-      lastDetent.current = d;
-      if (touched.current) {
-        try {
-          navigator.vibrate?.(6);
-        } catch {
-          /* no haptics */
+  const set = useCallback(
+    (p: number) => {
+      posRef.current = p;
+      setPos(p);
+      const d = Math.round(p);
+      if (d !== lastDetent.current && d >= 0 && d <= max) {
+        lastDetent.current = d;
+        if (touched.current) {
+          try {
+            navigator.vibrate?.(6);
+          } catch {
+            /* no haptics */
+          }
         }
       }
-    }
-  }, [max]);
-
-  // follow external index changes (e.g., another drum was added with a target)
-  useEffect(() => {
-    if (settled.current && Math.round(posRef.current) !== index) animateTo(index);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [index]);
+    },
+    [max]
+  );
 
   const cancelAnim = () => {
     if (raf.current) cancelAnimationFrame(raf.current);
     raf.current = null;
   };
 
-  // ease-out glide to a detent, then report it
   const animateTo = useCallback(
     (target: number, duration = 420) => {
       cancelAnim();
@@ -100,10 +101,13 @@ export default function Wheel3D({
     [max, onChange, set]
   );
 
-  // momentum after a fling: decelerate, then snap
+  useEffect(() => {
+    if (settled.current && Math.round(posRef.current) !== index) animateTo(index);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index]);
+
   const fling = useCallback(
     (velocity: number) => {
-      // velocity in items per ms; friction per frame
       cancelAnim();
       let v = velocity;
       let last = performance.now();
@@ -112,7 +116,6 @@ export default function Wheel3D({
         const dt = now - last;
         last = now;
         let p = posRef.current + v * dt;
-        // rubber band at the ends
         if (p < 0) {
           p = p * 0.4;
           v *= 0.5;
@@ -132,7 +135,7 @@ export default function Wheel3D({
 
   useEffect(() => () => cancelAnim(), []);
 
-  // ---- drag (touch + mouse) ----
+  // ---- drag ----
   const drag = useRef<{ y: number; pos: number; t: number; v: number; moved: boolean } | null>(null);
   const onPointerDown = (e: React.PointerEvent) => {
     touched.current = true;
@@ -149,26 +152,22 @@ export default function Wheel3D({
     const d = drag.current;
     if (!d) return;
     const now = performance.now();
-    const p = d.pos - (e.clientY - d.y) / ITEM_H; // drag down → earlier items
+    const p = d.pos - (e.clientY - d.y) / ITEM_H;
     const dt = Math.max(1, now - d.t);
     d.v = 0.6 * d.v + 0.4 * ((p - posRef.current) / dt);
     d.t = now;
     if (Math.abs(e.clientY - d.y) > 3) d.moved = true;
-    // rubber band beyond the ends
-    const clamped = p < 0 ? p * 0.35 : p > max ? max + (p - max) * 0.35 : p;
-    set(clamped);
+    set(p < 0 ? p * 0.35 : p > max ? max + (p - max) * 0.35 : p);
   };
   const onPointerUp = (e: React.PointerEvent) => {
     const d = drag.current;
     drag.current = null;
     if (!d) return;
     if (!d.moved) {
-      // a tap: on the centre item → details; above/below → roll there
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
       const offset = (e.clientY - (rect.top + rect.height / 2)) / ITEM_H;
-      const target = Math.round(posRef.current + offset);
       if (Math.abs(offset) < 0.5) onTapCentre?.(Math.round(posRef.current), e.clientX, e.clientY);
-      else animateTo(target);
+      else animateTo(Math.round(posRef.current + offset));
       settled.current = true;
       return;
     }
@@ -176,9 +175,7 @@ export default function Wheel3D({
     else animateTo(posRef.current, 260);
   };
 
-  // ---- mouse wheel: one detent per notch, both directions ----
-  // (a native, non-passive listener: React's wheel handler is passive, so it
-  // could not stop the page from scrolling under the reel)
+  // ---- mouse wheel (native, non-passive) ----
   const boxRef = useRef<HTMLDivElement | null>(null);
   const wheelAcc = useRef(0);
   useEffect(() => {
@@ -201,6 +198,13 @@ export default function Wheel3D({
     if (e.key === "ArrowUp") animateTo(Math.round(posRef.current) - 1, 300);
   };
 
+  // the drum's skin: grooves every SKIN_STEP degrees all the way round,
+  // turning with the items (only the front half is drawn)
+  const SKIN_STEP = 10;
+  const skin: number[] = [];
+  for (let a = -90; a <= 90; a += SKIN_STEP) skin.push(a);
+  const phase = ((pos * STEP) % SKIN_STEP) + SKIN_STEP;
+
   return (
     <div
       ref={boxRef}
@@ -213,19 +217,46 @@ export default function Wheel3D({
       onPointerCancel={onPointerUp}
       onKeyDown={onKey}
       className="relative select-none overflow-hidden outline-none"
-      style={{ height, touchAction: "none", cursor: drag.current ? "grabbing" : "grab", perspective: 640, perspectiveOrigin: "50% 50%" }}
+      style={{
+        height,
+        touchAction: "none",
+        cursor: "grab",
+        perspective: mini ? 320 : 520,
+        perspectiveOrigin: "50% 50%",
+        // the drum body: a lit cylinder — bright at the front, dark at the rims
+        background:
+          "linear-gradient(to bottom, #6e6470 0%, #9c92a0 6%, #d9d3d8 18%, #fbf8f6 42%, #ffffff 50%, #fbf8f6 58%, #d9d3d8 82%, #9c92a0 94%, #6e6470 100%)",
+      }}
     >
-      {/* the cylinder's shading: darker towards the rims, a glass band at the front */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 z-20" style={{ background: "linear-gradient(to bottom, rgba(46,36,56,0.28) 0%, rgba(46,36,56,0.05) 32%, rgba(255,255,255,0) 50%, rgba(46,36,56,0.05) 68%, rgba(46,36,56,0.28) 100%)" }} />
-      <div aria-hidden className="pointer-events-none absolute inset-x-2 top-1/2 z-10 -translate-y-1/2 rounded-xl" style={{ height: ITEM_H + 6, border: `2px solid ${accent}66`, background: `linear-gradient(to bottom, ${accent}0d, ${accent}22 50%, ${accent}0d)`, boxShadow: `inset 0 1px 0 rgba(255,255,255,0.6), 0 0 0 1px rgba(255,255,255,0.35)` }} />
+      {/* skin grooves — they rotate with pos, so the cylinder visibly turns */}
+      <div className="pointer-events-none absolute inset-x-0 top-1/2" style={{ transformStyle: "preserve-3d", height: 0 }} aria-hidden>
+        {skin.map((a) => {
+          const theta = a - phase; // degrees from the front
+          if (Math.abs(theta) > 88) return null;
+          const depth = Math.cos((theta * Math.PI) / 180);
+          return (
+            <div
+              key={a}
+              className="absolute inset-x-1"
+              style={{
+                height: 2,
+                top: -1,
+                transform: `rotateX(${-theta}deg) translateZ(${RADIUS}px)`,
+                background: `rgba(46,36,56,${0.05 + 0.12 * (1 - depth)})`,
+                boxShadow: "0 1px 0 rgba(255,255,255,0.55)",
+                backfaceVisibility: "hidden",
+              }}
+            />
+          );
+        })}
+      </div>
 
       {/* the items on the cylinder */}
       <div className="absolute inset-x-0 top-1/2" style={{ transformStyle: "preserve-3d", height: 0 }}>
         {items.map((it, i) => {
-          const theta = (i - pos) * STEP; // degrees away from the front
-          if (Math.abs(theta) > VISIBLE) return null;
-          const rad = (theta * Math.PI) / 180;
-          const depth = Math.cos(rad); // 1 at the front, 0 at the rims
+          const theta = (i - pos) * STEP;
+          if (Math.abs(theta) > 85) return null;
+          const depth = Math.cos((theta * Math.PI) / 180);
           const centred = Math.abs(i - pos) < 0.5;
           return (
             <div
@@ -237,16 +268,15 @@ export default function Wheel3D({
               style={{
                 height: ITEM_H,
                 top: -ITEM_H / 2,
-                transform: `rotateX(${-theta}deg) translateZ(${RADIUS}px)`,
+                transform: `rotateX(${-theta}deg) translateZ(${RADIUS + 2}px)`,
                 backfaceVisibility: "hidden",
-                opacity: 0.25 + 0.75 * Math.max(0, depth),
-                color: centred ? it.tone : "var(--primary)",
-                filter: centred ? "none" : `brightness(${0.75 + 0.25 * depth})`,
+                opacity: 0.2 + 0.8 * Math.max(0, depth),
+                color: centred ? it.tone : "#5a4f63",
                 transition: "color 0.2s",
               }}
             >
               <span
-                className="font-display text-xl font-extrabold leading-5"
+                className={`font-display font-extrabold ${mini ? "text-base leading-4" : "text-xl leading-5"}`}
                 style={{
                   transform: `scale(${0.8 + 0.25 * depth})`,
                   textDecoration: it.state === "done" ? "line-through" : "none",
@@ -257,13 +287,30 @@ export default function Wheel3D({
                 {it.state === "done" ? "✓ " : it.state === "ahead" ? "⏭ " : ""}
                 {it.num}
               </span>
-              <span className="line-clamp-1 w-full px-2 text-[10px] font-semibold leading-3" style={{ opacity: 0.55 + 0.45 * depth, textDecoration: it.state === "done" ? "line-through" : "none" }}>
-                {it.label}
-              </span>
+              {!mini && (
+                <span className="line-clamp-1 w-full px-2 text-[10px] font-semibold leading-3" style={{ opacity: 0.55 + 0.45 * depth, textDecoration: it.state === "done" ? "line-through" : "none" }}>
+                  {it.label}
+                </span>
+              )}
             </div>
           );
         })}
       </div>
+
+      {/* glass window over the front detent + rim shadows on the cylinder ends */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-1.5 top-1/2 z-20 -translate-y-1/2 rounded-lg"
+        style={{
+          height: ITEM_H + 4,
+          border: `2px solid ${accent}77`,
+          background: `linear-gradient(to bottom, ${accent}10, ${accent}24 48%, ${accent}0a 52%, ${accent}12)`,
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.7), 0 6px 14px -8px rgba(46,36,56,0.45)",
+        }}
+      />
+      <div aria-hidden className="pointer-events-none absolute inset-0 z-10" style={{ background: "linear-gradient(to right, rgba(46,36,56,0.22), rgba(46,36,56,0) 12%, rgba(46,36,56,0) 88%, rgba(46,36,56,0.22))" }} />
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-10 h-1/4" style={{ background: "linear-gradient(to bottom, rgba(20,14,26,0.35), rgba(20,14,26,0))" }} />
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-1/4" style={{ background: "linear-gradient(to top, rgba(20,14,26,0.35), rgba(20,14,26,0))" }} />
     </div>
   );
 }
