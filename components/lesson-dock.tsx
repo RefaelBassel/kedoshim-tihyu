@@ -22,9 +22,10 @@ export default function LessonDock() {
     pathname === "/onboarding" ||
     pathname === "/pending";
 
-  const { plan, units, busy, setBusy, act, persist } = useLessonPlan();
+  const { plan, units, busy, setBusy, act, persist, markUnit, markUpTo } = useLessonPlan();
   const [folded, setFolded] = useState(true);
-  const [popover, setPopover] = useState<{ unit: UnitOverview; x: number; y: number } | null>(null);
+  const [popover, setPopover] = useState<{ ref: string; x: number; y: number } | null>(null);
+  const popUnit: UnitOverview | null = popover ? units.find((u) => u.ref === popover.ref) ?? null : null;
   useEffect(() => {
     try {
       setFolded(localStorage.getItem("lesson-dock-folded") !== "0");
@@ -99,14 +100,16 @@ export default function LessonDock() {
                     }
                   }}
                   onPersist={persist}
-                  onShowUnit={(unit, x, y) => setPopover({ unit, x, y })}
+                  onShowUnit={(unit, x, y) => setPopover({ ref: unit.ref, x, y })}
                 />
               )}
             </div>
           )}
         </div>
       </div>
-      {popover && <UnitPopover unit={popover.unit} x={popover.x} y={popover.y} onClose={() => setPopover(null)} />}
+      {popover && popUnit && (
+        <UnitPopover unit={popUnit} x={popover.x} y={popover.y} onClose={() => setPopover(null)} onMark={markUnit} onMarkUpTo={markUpTo} />
+      )}
     </>
   );
 }

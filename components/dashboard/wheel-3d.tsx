@@ -311,7 +311,7 @@ export default function Wheel3D({
                 className={`font-display font-extrabold ${mini ? "text-base leading-4" : "text-xl leading-5"}`}
                 style={{
                   transform: `scale(${0.8 + 0.25 * depth})`,
-                  textDecoration: it.state === "done" ? "line-through" : "none",
+                  textDecorationLine: it.state === "done" ? "line-through" : "none",
                   textDecorationThickness: 2,
                   textShadow: centred && it.state === "next" ? `0 0 14px ${it.tone}66` : "none",
                 }}
@@ -319,7 +319,7 @@ export default function Wheel3D({
                 {it.state === "done" ? "✓ " : it.state === "ahead" ? "⏭ " : ""}
                 {it.num}
               </span>
-              <span className={`line-clamp-1 w-full font-semibold ${compact ? "px-0.5 text-[8px] leading-3" : mini ? "px-1 text-[9px] leading-3" : "px-2 text-[10px] leading-3"}`} style={{ opacity: 0.55 + 0.45 * depth, textDecoration: it.state === "done" ? "line-through" : "none" }}>
+              <span className={`line-clamp-1 w-full font-semibold ${compact ? "px-0.5 text-[8px] leading-3" : mini ? "px-1 text-[9px] leading-3" : "px-2 text-[10px] leading-3"}`} style={{ opacity: 0.55 + 0.45 * depth, textDecorationLine: it.state === "done" ? "line-through" : "none" }}>
                 {it.label}
               </span>
             </div>

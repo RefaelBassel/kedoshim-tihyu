@@ -91,18 +91,58 @@ export async function ensureEventsTable() {
        id INTEGER PRIMARY KEY AUTOINCREMENT,
        task_id INTEGER NOT NULL,
        kind TEXT NOT NULL,            -- 'review' | 'discussion' | 'study'
-       created_at INTEGER NOT NULL
+       created_at INTEGER NOT NULL,
+       source TEXT NOT NULL DEFAULT 'lesson' -- 'lesson' | 'manual'
      )`
   );
+  const info = await db().execute("PRAGMA table_info(unit_events)");
+  if (!info.rows.some((r) => String(r.name) === "source")) {
+    await db().execute("ALTER TABLE unit_events ADD COLUMN source TEXT NOT NULL DEFAULT 'lesson'");
+  }
   eventsReady = true;
 }
 
-export async function recordUnitEvent(taskId: number, kind: BlockKind) {
+export type EventSource = "lesson" | "manual";
+export async function recordUnitEvent(taskId: number, kind: BlockKind, source: EventSource = "lesson") {
   await ensureEventsTable();
   await db().execute({
-    sql: "INSERT INTO unit_events (task_id, kind, created_at) VALUES (?, ?, ?)",
-    args: [taskId, kind, now()],
+    sql: "INSERT INTO unit_events (task_id, kind, created_at, source) VALUES (?, ?, ?, ?)",
+    args: [taskId, kind, now(), source],
   });
+}
+
+// ---- the teacher's own word: "this was already done" ----
+// Lessons taught before the site had lesson plans are not recorded anywhere;
+// she ticks them in the journey. On = one manual event (unless the unit is
+// already done for that kind). Off = every recorded event of that kind goes
+// (she is the authority) — what the data itself says (a closed debate, 60 %
+// of the class finished) cannot be un-said and stays.
+export async function setUnitDone(taskId: number, kind: BlockKind, on: boolean) {
+  await ensureEventsTable();
+  if (on) {
+    const have = await db().execute({
+      sql: "SELECT 1 FROM unit_events WHERE task_id = ? AND kind = ? LIMIT 1",
+      args: [taskId, kind],
+    });
+    if (have.rows.length === 0) await recordUnitEvent(taskId, kind, "manual");
+  } else {
+    await db().execute({ sql: "DELETE FROM unit_events WHERE task_id = ? AND kind = ?", args: [taskId, kind] });
+  }
+}
+
+// "Everything up to here was taught": every published unit up to and
+// including this one gets all three kinds marked (only where missing).
+export async function markDoneUpTo(taskId: number) {
+  const units = await unitsOverview();
+  const kinds: BlockKind[] = ["review", "discussion", "study"];
+  for (const u of units) {
+    if (u.taskId == null) continue;
+    for (const kind of kinds) {
+      const done = kind === "review" ? u.reviewed > 0 : kind === "discussion" ? u.discussed > 0 : u.studied > 0;
+      if (!done) await recordUnitEvent(u.taskId, kind, "manual");
+    }
+    if (u.taskId === taskId) break;
+  }
 }
 
 async function markPassed(blocks: PlanBlock[], from: number, to: number) {

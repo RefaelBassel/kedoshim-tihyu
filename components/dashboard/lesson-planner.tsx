@@ -98,16 +98,37 @@ export function useLessonPlan() {
     });
     apply(await r.json());
   };
-  return { plan, units, busy, setBusy, act, persist };
+  // the teacher's own marks: tick / untick a circle, or "everything up to here"
+  const markUnit = async (taskId: number, kind: BlockKind, on: boolean): Promise<UnitOverview[]> => {
+    const r = await fetch("/api/lesson-plan/units", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "set", taskId, kind, on }),
+    });
+    const d = await r.json();
+    apply(d);
+    return d.units ?? [];
+  };
+  const markUpTo = async (taskId: number) => {
+    const r = await fetch("/api/lesson-plan/units", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "up-to", taskId }),
+    });
+    apply(await r.json());
+  };
+  return { plan, units, busy, setBusy, act, persist, markUnit, markUpTo };
 }
 
 // ---------------------------------------------------------------------------
 // The page
 // ---------------------------------------------------------------------------
 export default function LessonPlanner() {
-  const { plan, units, busy, setBusy, act, persist } = useLessonPlan();
-  const [popover, setPopover] = useState<{ unit: UnitOverview; x: number; y: number } | null>(null);
+  const { plan, units, busy, setBusy, act, persist, markUnit, markUpTo } = useLessonPlan();
+  const [popover, setPopover] = useState<{ ref: string; x: number; y: number } | null>(null);
   const published = useMemo(() => units.filter((u) => u.taskId != null), [units]);
+  // the popover shows the LIVE unit, so a tick inside it is visible at once
+  const popUnit = popover ? units.find((u) => u.ref === popover.ref) ?? null : null;
   if (!plan) return <p className="p-6 text-center text-sm text-[color:var(--primary)]/60">טוען…</p>;
   const running = plan.current >= 0 && plan.blocks.length > 0;
   return (
@@ -129,11 +150,13 @@ export default function LessonPlanner() {
             }
           }}
           onPersist={persist}
-          onShowUnit={(unit, x, y) => setPopover({ unit, x, y })}
+          onShowUnit={(unit, x, y) => setPopover({ ref: unit.ref, x, y })}
         />
       )}
-      <Journey units={units} onShowUnit={(unit, x, y) => setPopover({ unit, x, y })} />
-      {popover && <UnitPopover unit={popover.unit} x={popover.x} y={popover.y} onClose={() => setPopover(null)} />}
+      <Journey units={units} onShowUnit={(unit, x, y) => setPopover({ ref: unit.ref, x, y })} onMark={markUnit} />
+      {popover && popUnit && (
+        <UnitPopover unit={popUnit} x={popover.x} y={popover.y} onClose={() => setPopover(null)} onMark={markUnit} onMarkUpTo={markUpTo} />
+      )}
     </div>
   );
 }
@@ -171,6 +194,34 @@ export function WheelBuilder({
     if (savedBlocks.length > 0) setDrums(savedBlocks.map((b, i) => ({ id: `d${i}-${b.kind}`, kind: b.kind, taskId: b.taskId })));
     else setDrums((["review", "discussion", "study"] as BlockKind[]).map((kind, i) => ({ id: `d${i}-${kind}`, kind, taskId: defaultFor(kind) })));
   }, [units, savedBlocks, drums, defaultFor]);
+  // a reel the teacher never rolled sits on the default; when she ticks a
+  // unit as done the default moves on — and so does that reel
+  const prevDefaults = useRef<Record<BlockKind, number | null> | null>(null);
+  useEffect(() => {
+    const cur: Record<BlockKind, number | null> = { review: defaultFor("review"), discussion: defaultFor("discussion"), study: defaultFor("study") };
+    const prev = prevDefaults.current;
+    prevDefaults.current = cur;
+    if (!prev || !drums) return;
+    const moved = (["review", "discussion", "study"] as BlockKind[]).filter((k) => prev[k] !== cur[k]);
+    if (moved.length === 0) return;
+    setDrums((ds) => {
+      if (!ds) return ds;
+      let changed = false;
+      const next = ds.map((d) => {
+        if (moved.includes(d.kind) && d.taskId === prev[d.kind]) {
+          changed = true;
+          return { ...d, taskId: cur[d.kind] };
+        }
+        return d;
+      });
+      if (changed) {
+        if (saveTimer.current) window.clearTimeout(saveTimer.current);
+        saveTimer.current = window.setTimeout(() => void onPersist(toBlocks(next)), 600);
+      }
+      return changed ? next : ds;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultFor]);
 
   const saveTimer = useRef<number | null>(null);
   const toBlocks = (ds: Drum[]): PlanBlock[] =>
@@ -570,23 +621,49 @@ export function RunningBar({ plan, busy, act, mini = false }: { plan: LessonPlan
 // ---------------------------------------------------------------------------
 // The journey
 // ---------------------------------------------------------------------------
-function Journey({ units, onShowUnit }: { units: UnitOverview[]; onShowUnit: (u: UnitOverview, x: number, y: number) => void }) {
+function Journey({
+  units,
+  onShowUnit,
+  onMark,
+}: {
+  units: UnitOverview[];
+  onShowUnit: (u: UnitOverview, x: number, y: number) => void;
+  onMark: (taskId: number, kind: BlockKind, on: boolean) => Promise<UnitOverview[]>;
+}) {
+  const [notice, setNotice] = useState<string | null>(null);
+  const toggle = async (u: UnitOverview, kind: BlockKind, on: boolean) => {
+    if (u.taskId == null) return;
+    const next = await onMark(u.taskId, kind, on);
+    const fresh = next.find((x) => x.ref === u.ref);
+    if (!on && fresh && doneFor(fresh, kind)) {
+      // the data itself says so — a closed debate, most of the class finished
+      setNotice(kind === "discussion" ? "הדיון הזה באמת התקיים באתר (לוח שנסגר) — אי אפשר לבטל." : "רוב הכיתה כבר סיימה את היחידה באתר — היא נחשבת נלמדה.");
+      window.setTimeout(() => setNotice(null), 3600);
+    }
+  };
   return (
-    <section>
-      <div className="mb-2 flex items-center justify-between">
+    <section className="relative">
+      <div className="mb-2 flex items-center justify-between gap-3">
         <p className="font-display text-lg font-extrabold text-[color:var(--primary)]">🗺️ המסע</p>
-        <p className="text-[10px] text-[color:var(--primary)]/50">לחיצה על יחידה — פרטים וכלים</p>
+        <p className="text-end text-[10px] leading-4 text-[color:var(--primary)]/50">לחיצה על יחידה — פרטים וכלים · לחיצה על עיגול — סימון ״כבר נעשה״ (ושוב — ביטול)</p>
       </div>
+      {notice && (
+        <div className="note-pop pointer-events-none fixed inset-x-0 bottom-24 z-[96] flex justify-center px-4">
+          <p className="rounded-full bg-[color:var(--ink,#2e2438)] px-4 py-2 text-xs font-bold text-white shadow-xl">{notice}</p>
+        </div>
+      )}
       <ol className="space-y-2">
         {units.map((u, i) => {
           const published = u.taskId != null;
           const pct = u.assigned ? Math.round((100 * u.complete) / u.assigned) : 0;
           return (
             <li key={u.ref}>
-              <button
-                type="button"
+              <div
+                role="button"
+                tabIndex={0}
                 onClick={(e) => { e.stopPropagation(); onShowUnit(u, e.clientX, e.clientY); }}
-                className={`flex w-full items-center gap-3 rounded-2xl border bg-[color:var(--card)] p-3 text-start transition hover:border-[color:var(--accent)] active:scale-[0.995] ${published ? "border-[color:var(--border)]" : "border-dashed border-[color:var(--border)] opacity-60"}`}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); onShowUnit(u, r.left + r.width / 2, r.top); } }}
+                className={`flex w-full cursor-pointer items-center gap-3 rounded-2xl border bg-[color:var(--card)] p-3 text-start transition hover:border-[color:var(--accent)] active:scale-[0.995] ${published ? "border-[color:var(--border)]" : "border-dashed border-[color:var(--border)] opacity-60"}`}
               >
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--primary)]/8 font-display text-base font-extrabold text-[color:var(--primary)]">{unitNum(u, i)}</span>
                 <span className="min-w-0 flex-1">
@@ -594,16 +671,11 @@ function Journey({ units, onShowUnit }: { units: UnitOverview[]; onShowUnit: (u:
                   <span className="block text-[11px] text-[color:var(--primary)]/55">{published ? `${u.complete}/${u.assigned} סיימו (${pct}%)` : "עוד לא פורסמה"}</span>
                 </span>
                 <span className="flex shrink-0 items-center gap-1.5">
-                  {(["review", "discussion", "study"] as BlockKind[]).map((kind) => {
-                    const on = published && doneFor(u, kind);
-                    return (
-                      <span key={kind} className="flex h-8 w-8 items-center justify-center rounded-full text-sm transition" style={{ background: on ? `${KIND[kind].color}22` : "var(--background)", border: `1.5px solid ${on ? KIND[kind].color : "var(--border)"}`, opacity: on ? 1 : 0.35, filter: on ? "none" : "grayscale(1)" }} title={`${KIND[kind].label}: ${on ? "נעשה ✓" : "עוד לא"}`}>
-                        {KIND[kind].emoji}
-                      </span>
-                    );
-                  })}
+                  {(["review", "discussion", "study"] as BlockKind[]).map((kind) => (
+                    <DoneDot key={kind} kind={kind} on={published && doneFor(u, kind)} disabled={!published} onToggle={(on) => toggle(u, kind, on)} />
+                  ))}
                 </span>
-              </button>
+              </div>
             </li>
           );
         })}
@@ -612,10 +684,75 @@ function Journey({ units, onShowUnit }: { units: UnitOverview[]; onShowUnit: (u:
   );
 }
 
+// One circle = one kind on one unit. Tap: fills with the kind's colour and
+// a tick, saved at once; tap again: empties. While saving it breathes.
+function DoneDot({ kind, on, disabled, onToggle, size = "md" }: { kind: BlockKind; on: boolean; disabled?: boolean; onToggle: (on: boolean) => Promise<void>; size?: "md" | "lg" }) {
+  const [pending, setPending] = useState(false);
+  const [pulse, setPulse] = useState(0);
+  const [shown, setShown] = useState(on);
+  useEffect(() => setShown(on), [on]);
+  const k = KIND[kind];
+  const click = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (disabled || pending) return;
+    const want = !shown;
+    setShown(want);
+    setPulse((n) => n + 1);
+    setPending(true);
+    try {
+      await onToggle(want);
+    } catch {
+      setShown(on);
+    } finally {
+      setPending(false);
+    }
+  };
+  const dim = size === "lg" ? "h-10 min-w-10 px-2 text-sm" : "h-8 w-8 text-sm";
+  return (
+    <button
+      type="button"
+      onClick={click}
+      disabled={disabled}
+      aria-pressed={shown}
+      aria-label={`${k.label}: ${shown ? "נעשה — לחיצה מבטלת" : "עוד לא — לחיצה מסמנת"}`}
+      title={`${k.label}: ${shown ? "נעשה ✓ (לחיצה מבטלת)" : "עוד לא (לחיצה מסמנת)"}`}
+      className={`relative flex items-center justify-center gap-1 rounded-full font-bold transition-all duration-300 active:scale-90 disabled:cursor-default ${dim} ${pulse ? "tap-pulse" : ""} ${pending ? "animate-pulse" : ""}`}
+      key={pulse}
+      style={{
+        background: shown ? k.color : "var(--background)",
+        color: shown ? "#fff" : "var(--primary)",
+        border: `2px solid ${shown ? k.color : "var(--border)"}`,
+        opacity: disabled ? 0.25 : shown ? 1 : 0.55,
+        filter: shown || disabled ? "none" : "grayscale(1)",
+        boxShadow: shown ? `0 6px 16px -8px ${k.color}` : "none",
+      }}
+    >
+      <span aria-hidden>{k.emoji}</span>
+      {size === "lg" && <span>{k.label}</span>}
+      {shown && <span aria-hidden className="absolute -end-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-white text-[10px] font-extrabold shadow" style={{ color: k.color }}>✓</span>}
+    </button>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Unit popover — details + tools, no page change
 // ---------------------------------------------------------------------------
-export function UnitPopover({ unit, x, y, onClose }: { unit: UnitOverview; x: number; y: number; onClose: () => void }) {
+export function UnitPopover({
+  unit,
+  x,
+  y,
+  onClose,
+  onMark,
+  onMarkUpTo,
+}: {
+  unit: UnitOverview;
+  x: number;
+  y: number;
+  onClose: () => void;
+  onMark?: (taskId: number, kind: BlockKind, on: boolean) => Promise<UnitOverview[]>;
+  onMarkUpTo?: (taskId: number) => Promise<void>;
+}) {
+  const [upTo, setUpTo] = useState<"idle" | "working" | "done">("idle");
   const w = Math.min(340, typeof window !== "undefined" ? window.innerWidth - 24 : 340);
   const left = typeof window !== "undefined" ? Math.max(12, Math.min(x - w / 2, window.innerWidth - w - 12)) : 12;
   const top = typeof window !== "undefined" ? Math.max(12, Math.min(y - 300, window.innerHeight - 320)) : y;
@@ -629,11 +766,40 @@ export function UnitPopover({ unit, x, y, onClose }: { unit: UnitOverview; x: nu
       <p className="text-[11px] text-[color:var(--primary)]/55">{unit.position}{unit.subtitle ? ` · ${unit.subtitle}` : ""}</p>
       {unit.taskId != null ? (
         <>
-          <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] font-bold">
-            <Chip on={doneFor(unit, "review")} label={`🔁 חזרה${unit.reviewed ? ` ×${unit.reviewed}` : ""}`} color={KIND.review.color} />
-            <Chip on={doneFor(unit, "discussion")} label={`💬 דיון${unit.discussed ? ` ×${unit.discussed}` : ""}`} color={KIND.discussion.color} />
-            <Chip on={doneFor(unit, "study")} label={`📖 לימוד · ${pct}% סיימו`} color={KIND.study.color} />
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] font-bold">
+            {onMark ? (
+              (["review", "discussion", "study"] as BlockKind[]).map((kind) => (
+                <DoneDot key={kind} kind={kind} size="lg" on={doneFor(unit, kind)} onToggle={async (on) => { await onMark(unit.taskId!, kind, on); }} />
+              ))
+            ) : (
+              <>
+                <Chip on={doneFor(unit, "review")} label={`🔁 חזרה${unit.reviewed ? ` ×${unit.reviewed}` : ""}`} color={KIND.review.color} />
+                <Chip on={doneFor(unit, "discussion")} label={`💬 דיון${unit.discussed ? ` ×${unit.discussed}` : ""}`} color={KIND.discussion.color} />
+                <Chip on={doneFor(unit, "study")} label={`📖 לימוד · ${pct}% סיימו`} color={KIND.study.color} />
+              </>
+            )}
+            <span className="text-[10px] font-semibold text-[color:var(--primary)]/50">{pct}% מהכיתה סיימו</span>
           </div>
+          {onMarkUpTo && (
+            <button
+              type="button"
+              disabled={upTo !== "idle"}
+              onClick={async () => {
+                setUpTo("working");
+                try {
+                  await onMarkUpTo(unit.taskId!);
+                  setUpTo("done");
+                  window.setTimeout(() => setUpTo("idle"), 1800);
+                } catch {
+                  setUpTo("idle");
+                }
+              }}
+              className={`mt-2 w-full rounded-xl border-2 px-3 py-1.5 text-xs font-extrabold transition-all duration-300 active:scale-[0.98] ${upTo === "done" ? "border-[color:var(--success)] bg-[color:var(--success)] text-white" : upTo === "working" ? "animate-pulse border-[color:var(--accent)] bg-[color:var(--accent)]/15 text-[color:var(--accent)]" : "border-dashed border-[color:var(--primary)]/35 text-[color:var(--primary)] hover:border-[color:var(--accent)] hover:text-[color:var(--accent)]"}`}
+              title="מסמן חזרה, דיון ולימוד לכל היחידות מתחילת המסע ועד היחידה הזו"
+            >
+              {upTo === "done" ? "נשמר ✓ — עד כאן הכול נעשה" : upTo === "working" ? "מסמנים…" : "✓ הכול עד כאן כבר נלמד (חזרה, דיון, לימוד)"}
+            </button>
+          )}
           {unit.question && <p className="mt-2 rounded-lg bg-[color:var(--background)] px-3 py-2 text-xs leading-5 text-[color:var(--foreground)]/80">💬 {unit.question}</p>}
           <div className="mt-3 flex flex-wrap gap-1.5 text-[11px] font-bold">
             <a href={`/dashboard/review/${unit.taskId}`} target="_blank" rel="noopener noreferrer" className="rounded-full px-3 py-1 text-white" style={{ background: KIND.review.color }}>🔁 מצגת ↗</a>
