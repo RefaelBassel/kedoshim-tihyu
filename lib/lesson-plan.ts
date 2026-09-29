@@ -80,18 +80,63 @@ export async function savePlan(blocks: PlanBlock[], teacherId: number, day = tod
   });
 }
 
+// ---- what was done to a unit: review shown / debate held / study block run ----
+// The journey's "already done" colours come from here (plus completion and
+// closed debates). A block counts as done when the teacher moves past it.
+let eventsReady = false;
+export async function ensureEventsTable() {
+  if (eventsReady) return;
+  await db().execute(
+    `CREATE TABLE IF NOT EXISTS unit_events (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       task_id INTEGER NOT NULL,
+       kind TEXT NOT NULL,            -- 'review' | 'discussion' | 'study'
+       created_at INTEGER NOT NULL
+     )`
+  );
+  eventsReady = true;
+}
+
+export async function recordUnitEvent(taskId: number, kind: BlockKind) {
+  await ensureEventsTable();
+  await db().execute({
+    sql: "INSERT INTO unit_events (task_id, kind, created_at) VALUES (?, ?, ?)",
+    args: [taskId, kind, now()],
+  });
+}
+
+async function markPassed(blocks: PlanBlock[], from: number, to: number) {
+  // blocks[from..to) were run — from = first not yet marked
+  for (let i = Math.max(0, from); i < Math.min(to, blocks.length); i++) {
+    await recordUnitEvent(blocks[i].taskId, blocks[i].kind);
+  }
+}
+
 export async function setCurrent(index: number, day = todayIsrael()) {
   await ensurePlanTable();
   const plan = await getPlan(day);
   const i = Math.max(-1, Math.min(plan.blocks.length - 1, index));
+  if (i > plan.current) await markPassed(plan.blocks, plan.current, i);
   await db().execute({
     sql: `UPDATE lesson_plans SET current_index = ?, started_at = COALESCE(started_at, ?), updated_at = ? WHERE day = ?`,
     args: [i, i >= 0 ? now() : null, now(), day],
   });
 }
 
+// "Stop and re-plan": back to the wheels without counting anything as done.
+export async function cancelPlan(day = todayIsrael()) {
+  await ensurePlanTable();
+  await db().execute({
+    sql: "UPDATE lesson_plans SET current_index = -1, started_at = NULL, updated_at = ? WHERE day = ?",
+    args: [now(), day],
+  });
+}
+
+// Ending the lesson counts the current block (and any after it) as done.
 export async function stopPlan(day = todayIsrael()) {
   await ensurePlanTable();
+  const plan = await getPlan(day);
+  if (plan.current >= 0) await markPassed(plan.blocks, plan.current, plan.blocks.length);
   await db().execute({
     sql: "UPDATE lesson_plans SET current_index = -1, started_at = NULL, updated_at = ? WHERE day = ?",
     args: [now(), day],
@@ -109,8 +154,11 @@ export interface UnitOverview {
   taskId: number | null; // null = not published yet
   assigned: number;
   complete: number; // students who answered every worksheet question
-  discussed: number; // closed debates on it
+  discussed: number; // closed debates on it (with speakers) or debate blocks run
   discussionOpen: boolean;
+  reviewed: number; // review decks shown / review blocks run
+  studied: number; // study blocks run in a lesson
+  question: string | null; // the unit's discussion question (for the popover)
 }
 
 export async function unitsOverview(): Promise<UnitOverview[]> {
@@ -119,6 +167,13 @@ export async function unitsOverview(): Promise<UnitOverview[]> {
   const res = await db().execute({ sql: "SELECT id, content_ref FROM tasks", args: [] });
   const taskByRef = new Map<string, number>();
   for (const r of res.rows) taskByRef.set(String(r.content_ref), Number(r.id));
+  await ensureEventsTable();
+  const ev = await db().execute({
+    sql: "SELECT task_id, kind, COUNT(*) AS n FROM unit_events GROUP BY task_id, kind",
+    args: [],
+  });
+  const events = new Map<string, number>();
+  for (const r of ev.rows) events.set(`${r.task_id}:${r.kind}`, Number(r.n));
   const refs = Object.keys(TASK_REGISTRY).sort((a, b) => taskOrderIndex(a) - taskOrderIndex(b));
   const out: UnitOverview[] = [];
   for (const ref of refs) {
@@ -128,24 +183,35 @@ export async function unitsOverview(): Promise<UnitOverview[]> {
     let complete = 0;
     let discussed = 0;
     let discussionOpen = false;
+    let reviewed = 0;
+    let studied = 0;
     if (taskId != null) {
       const elig = await eligibilityFor(taskId);
       assigned = elig.length;
       complete = elig.filter((e) => e.complete).length;
       const ds = await discussionsOf(taskId);
-      discussed = ds.filter((d) => d.status === "closed" && d.turns > 0).length;
+      discussed =
+        ds.filter((d) => d.status === "closed" && d.turns > 0).length +
+        (events.get(`${taskId}:discussion`) ?? 0);
       discussionOpen = ds.some((d) => d.status === "open" && (d.turns > 0 || d.notes > 0));
+      reviewed = events.get(`${taskId}:review`) ?? 0;
+      studied = events.get(`${taskId}:study`) ?? 0;
     }
+    const { effectiveContent } = await import("./content-overrides");
+    const eff = await effectiveContent(c);
     out.push({
       ref,
-      title: c.title,
-      subtitle: c.subtitle ?? null,
+      title: eff.title,
+      subtitle: eff.subtitle ?? null,
       position: positionLabel(ref),
       taskId,
       assigned,
       complete,
       discussed,
       discussionOpen,
+      reviewed,
+      studied,
+      question: eff.discussion?.question ?? null,
     });
   }
   return out;

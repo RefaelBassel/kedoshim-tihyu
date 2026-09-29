@@ -56,6 +56,11 @@ export async function POST(req: Request) {
     case "stop":
       await stopPlan();
       break;
+    case "cancel": {
+      const { cancelPlan } = await import("@/lib/lesson-plan");
+      await cancelPlan();
+      break;
+    }
     default:
       return NextResponse.json({ error: "פעולה לא ידועה." }, { status: 400 });
   }

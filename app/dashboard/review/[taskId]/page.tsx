@@ -23,6 +23,9 @@ export default async function ReviewDeckPage({
   const baseReg = getTaskContent(task.content_ref);
   if (!baseReg) notFound();
   const content = await effectiveContent(baseReg.content);
+  // showing the deck counts as "reviewed" on the journey
+  const { recordUnitEvent } = await import("@/lib/lesson-plan");
+  await recordUnitEvent(task.id, "review");
 
   return (
     <ReviewDeckPlayer

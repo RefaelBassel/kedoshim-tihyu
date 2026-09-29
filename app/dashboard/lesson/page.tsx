@@ -16,7 +16,7 @@ export default async function LessonPage() {
   return (
     <PageShell
       title="מהלך השיעור"
-      subtitle="🔁 חזרה (5) · 💬 דיון (15) · 📖 לימוד (20) — בסדר שאת בוחרת, על היחידות שאת בוחרת. הדיון והחזרה על יחידה שכבר נלמדה; הלימוד על הבאה."
+      subtitle="מגלגלים, מסדרים, ▶"
     >
       <div className="mx-auto max-w-4xl">
         <LessonPlanner />

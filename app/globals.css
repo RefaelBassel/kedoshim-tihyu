@@ -139,3 +139,40 @@ body {
 @keyframes deck-pan { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
 .deck-pan { background-size: 180% 180%; animation: deck-pan 18s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .deck-fade, .deck-float, .deck-pop, .deck-bounce, .deck-pan { animation: none; } }
+
+/* The lesson wheels (components/dashboard/lesson-planner.tsx): three slot
+   drums the teacher spins to compose the lesson. Native scroll-snap gives
+   momentum and a click-stop; the mask fades the drum's edges; items scale
+   with distance from the centre; a drum being dragged lifts. */
+.wheel {
+  scroll-snap-type: y mandatory;
+  overscroll-behavior: contain;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22%, #000 78%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 22%, #000 78%, transparent 100%);
+  scrollbar-width: none;
+}
+.wheel::-webkit-scrollbar { display: none; }
+.wheel-item {
+  scroll-snap-align: center;
+  transition: transform 0.18s ease, opacity 0.18s ease, background-color 0.25s ease, color 0.25s ease;
+}
+.drum {
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.2s ease;
+  touch-action: pan-y;
+}
+.drum.dragging {
+  transition: box-shadow 0.2s ease;
+  z-index: 20;
+  box-shadow: 0 24px 50px -20px rgba(46, 36, 56, 0.55);
+  cursor: grabbing;
+}
+@keyframes drum-in { from { opacity: 0; transform: translateY(10px) scale(0.96); } to { opacity: 1; transform: none; } }
+.drum-in { animation: drum-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes tap-pulse { 0% { transform: scale(1); } 40% { transform: scale(0.94); } 100% { transform: scale(1); } }
+.tap-pulse { animation: tap-pulse 0.22s ease-out; }
+@keyframes warn-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.warn-in { animation: warn-in 0.25s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .wheel-item, .drum { transition: none; }
+  .drum-in, .tap-pulse, .warn-in { animation: none; }
+}

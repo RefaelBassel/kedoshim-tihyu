@@ -44,7 +44,12 @@ export default function LessonStrip() {
   useEffect(() => {
     load();
     const iv = setInterval(load, 20000);
-    return () => clearInterval(iv);
+    // the planner announces changes so the strip appears the moment ▶ is pressed
+    window.addEventListener("lesson-plan-changed", load);
+    return () => {
+      clearInterval(iv);
+      window.removeEventListener("lesson-plan-changed", load);
+    };
   }, []);
 
   const act = async (action: string) => {
