@@ -1,6 +1,7 @@
 import TopNav from "./top-nav";
 import ReflectionDrawer from "./reflection-drawer";
 import LessonStrip from "./lesson-strip";
+import LessonFab from "./lesson-fab";
 import ContinueFab from "./continue-fab";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
@@ -36,6 +37,7 @@ export default async function PageShell({
     <>
       <TopNav />
       {drawerMode === "teacher" && <LessonStrip />}
+      {drawerMode === "teacher" && <LessonFab />}
       {showDrawer && <ReflectionDrawer contextRef={title} mode={drawerMode} />}
       {showDrawer && <ContinueFab />}
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-10 sm:px-6">
