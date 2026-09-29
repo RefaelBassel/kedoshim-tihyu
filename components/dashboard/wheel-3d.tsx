@@ -162,8 +162,10 @@ export default function Wheel3D({
     if (d.mode === "undecided") {
       const ax = Math.abs(e.clientX - d.x);
       const ay = Math.abs(e.clientY - d.y);
-      if (ax < 6 && ay < 6) return;
-      if (ax > ay && onReorderStart) {
+      if (ax < 5 && ay < 5) return;
+      // sideways wins whenever it is at least ~2/3 of the vertical travel:
+      // a real finger starts a horizontal drag with a diagonal wobble
+      if (ax * 1.5 > ay && onReorderStart) {
         d.mode = "reorder";
         settled.current = true;
         onReorderStart(e);

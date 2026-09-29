@@ -186,7 +186,7 @@ export function WheelBuilder({
   // on release it glides into its slot, and only then the order commits ----
   const rowRef = useRef<HTMLDivElement | null>(null);
   const [drag, setDrag] = useState<{ id: string; dx: number; over: number; settling: boolean } | null>(null);
-  const dragStart = useRef<{ x: number; id: string; index: number; centers: number[]; gap: number } | null>(null);
+  const dragStart = useRef<{ x: number; id: string; index: number; centers: number[]; gap: number; over: number } | null>(null);
   const settleTimer = useRef<number | null>(null);
   const drumsRef = useRef<Drum[] | null>(null);
   drumsRef.current = drums;
@@ -205,38 +205,48 @@ export function WheelBuilder({
       setDrag(null);
     }
     const { centers, gap } = measure();
-    dragStart.current = { x: e.clientX, id, index: drums.findIndex((d) => d.id === id), centers, gap };
+    const index = drums.findIndex((d) => d.id === id);
+    dragStart.current = { x: e.clientX, id, index, centers, gap, over: index };
     try {
       (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     } catch {
       /* synthetic pointer */
     }
-    setDrag({ id, dx: 0, over: dragStart.current.index, settling: false });
+    setDrag({ id, dx: 0, over: index, settling: false });
   };
   const onGripMove = (e: React.PointerEvent) => {
     const s = dragStart.current;
     if (!s || !drums) return;
-    const dx = e.clientX - s.x;
-    const x = s.centers[s.index] + dx;
-    // the slot whose centre is nearest to the dragged reel's centre
-    let over = s.index;
-    let best = Infinity;
-    s.centers.forEach((c, i) => {
-      const d = Math.abs(c - x);
-      if (d < best) {
-        best = d;
-        over = i;
+    // the dragged reel follows the finger 1:1, clamped to the row
+    const n = s.centers.length;
+    const minDx = s.centers[n - 1] - s.centers[s.index] - s.gap * 0.35; // leftmost slot (RTL: last index)
+    const maxDx = s.centers[0] - s.centers[s.index] + s.gap * 0.35; // rightmost slot (index 0)
+    const dx = Math.max(Math.min(minDx, maxDx), Math.min(Math.max(minDx, maxDx), e.clientX - s.x));
+    // slot = how many slots the reel has travelled; RTL: leftwards = later index
+    const travelled = -dx / s.gap;
+    const over = Math.max(0, Math.min(n - 1, Math.round(s.index + travelled)));
+    if (over !== s.over) {
+      s.over = over;
+      try {
+        navigator.vibrate?.(6);
+      } catch {
+        /* no haptics */
       }
-    });
+    }
     setDrag({ id: s.id, dx, over, settling: false });
   };
   const onGripUp = () => {
     const s = dragStart.current;
     if (!s || !drums) return;
-    const over = drag?.over ?? s.index;
+    const over = s.over;
     dragStart.current = null;
     if (over === s.index) {
-      setDrag(null);
+      // glide back home
+      setDrag({ id: s.id, dx: 0, over, settling: true });
+      settleTimer.current = window.setTimeout(() => {
+        settleTimer.current = null;
+        setDrag(null);
+      }, 260);
       return;
     }
     // glide to the destination slot, then commit the order
@@ -256,23 +266,34 @@ export function WheelBuilder({
       setDrag(null);
       update(next);
       try {
-        navigator.vibrate?.(10);
+        navigator.vibrate?.(12);
       } catch {
         /* no haptics */
       }
-    }, 240);
+    }, 260);
   };
 
   if (!drums) return null;
   const total = drums.reduce((n, d) => n + KIND[d.kind].minutes, 0);
   const ready = drums.length > 0 && drums.every((d) => d.taskId != null);
   const from = drag ? drums.findIndex((x) => x.id === drag.id) : -1;
+  const gapNow = dragStart.current?.gap ?? 170;
+  // how far (in slots, signed: + = towards later index = leftwards in RTL)
+  // the dragged reel has travelled right now
+  const travelled = drag ? -drag.dx / gapNow : 0;
   const slotShift = (i: number) => {
     if (!drag || i === from) return 0;
-    const gap = dragStart.current?.gap ?? 170;
-    // RTL row: a later index sits further LEFT, so sliding to a later slot is a negative x
-    if (from < drag.over && i > from && i <= drag.over) return gap; // moves right
-    if (from > drag.over && i >= drag.over && i < from) return -gap; // moves left
+    if (drag.settling) {
+      // glide phase: everyone sits exactly in its final slot
+      if (from < drag.over && i > from && i <= drag.over) return gapNow;
+      if (from > drag.over && i >= drag.over && i < from) return -gapNow;
+      return 0;
+    }
+    // live phase: a neighbour slides the other way in step with the dragged
+    // reel crossing it — the swap is visible from the first millimetre
+    const d = i - from; // slots between the neighbour and the dragged reel's home
+    if (d > 0 && travelled > d - 1) return gapNow * Math.min(1, travelled - (d - 1));
+    if (d < 0 && travelled < d + 1) return -gapNow * Math.min(1, (d + 1) - travelled);
     return 0;
   };
 
@@ -303,7 +324,10 @@ export function WheelBuilder({
                   : shift
                     ? `translateX(${shift}px)`
                     : undefined,
-                transition: isDragged && !drag!.settling ? "box-shadow 0.2s" : "transform 0.26s cubic-bezier(0.34, 1.3, 0.64, 1), box-shadow 0.2s, filter 0.35s, border-color 0.35s",
+                transition:
+                  drag && !drag.settling
+                    ? "box-shadow 0.2s"
+                    : "transform 0.26s cubic-bezier(0.34, 1.3, 0.64, 1), box-shadow 0.2s, filter 0.35s, border-color 0.35s",
                 zIndex: isDragged ? 30 : undefined,
               }}
               dragging={lift}
@@ -473,7 +497,7 @@ function DrumView({
         onClick={onAddSame}
         aria-label={`עוד ${k.label}`}
         title={`עוד ${k.label}`}
-        className={`absolute top-[46%] z-20 flex items-center justify-center rounded-full border-2 bg-[color:var(--card)] font-extrabold shadow-md transition hover:scale-110 active:scale-90 ${mini ? "-start-3 h-6 w-6 text-sm" : "-start-3.5 h-8 w-8 text-base"}`}
+        className={`absolute top-[46%] z-20 flex items-center justify-center rounded-full border-2 bg-[color:var(--card)] font-extrabold shadow-md transition hover:scale-110 active:scale-90 ${mini ? "-end-3 h-6 w-6 text-sm" : "-end-3.5 h-8 w-8 text-base"}`}
         style={{ borderColor: k.color, color: k.color }}
       >
         ＋
