@@ -50,6 +50,36 @@ export default function DiscussionBoard({ discussionId }: { discussionId: number
     );
   }
   void tick;
+  // ---- the ticket gate: the board waits, showing no names, until the
+  // teacher has approved the entry tickets on her own screen ----
+  if (!state.begun) {
+    return (
+      <div
+        className="fixed inset-0 z-[70] flex flex-col items-center justify-center px-10 text-center text-white"
+        style={{ background: "linear-gradient(135deg, #2a1f3a 0%, #413055 60%, #5a4574 100%)" }}
+        dir="rtl"
+      >
+        <p className="mb-3 text-xs font-semibold tracking-[0.35em] text-white/60">
+          💬 דיון · {state.bookRef} · {state.taskTitle}
+        </p>
+        <p className="deck-float text-7xl">🎫</p>
+        <h1 className="mt-5 font-display text-4xl font-extrabold leading-snug sm:text-5xl">כרטיסי הכניסה נבדקים</h1>
+        <p className="mt-3 max-w-2xl text-lg text-white/80">
+          מי שענה/תה על כל שאלות היחידה נכנס/ת לדיון. עוד רגע מתחילים.
+        </p>
+        {/* for a teacher working from this same computer — it opens her
+            own window; nothing on this slide names anyone */}
+        <a
+          href={`/dashboard/discussion/${state.taskId}/control`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-10 rounded-full border border-white/40 px-5 py-2 text-sm font-bold text-white/85 transition hover:bg-white/10"
+        >
+          🎫 למורה: לאשר כרטיסים ולהתחיל את הדיון ↗
+        </a>
+      </div>
+    );
+  }
   const nowS = Math.floor(Date.now() / 1000) + offset;
   const active = state.activeTurn;
   const elapsed = active ? Math.max(0, nowS - active.startedAt) : 0;

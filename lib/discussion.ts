@@ -29,6 +29,11 @@ export async function ensureDiscussionTables() {
        closed_at INTEGER
      )`
   );
+  // the ticket gate: the debate begins when the teacher says so
+  const info = await c.execute("PRAGMA table_info(discussions)");
+  if (!info.rows.some((r) => String(r.name) === "begun_at")) {
+    await c.execute("ALTER TABLE discussions ADD COLUMN begun_at INTEGER");
+  }
   await c.execute(
     `CREATE TABLE IF NOT EXISTS discussion_participants (
        discussion_id INTEGER NOT NULL,
@@ -138,6 +143,9 @@ export interface DiscussionState {
   question: string;
   teacherNote: string | null;
   status: "open" | "closed";
+  // false while the teacher is still approving entry tickets: the projected
+  // board waits; true once she begins the debate (or anything was said)
+  begun: boolean;
   secondsPerSpeaker: number;
   participants: {
     userId: number;
@@ -210,6 +218,15 @@ export async function refreshEligibility(discussionId: number) {
   }
 }
 
+// the tickets are approved — open the board
+export async function beginDiscussion(discussionId: number) {
+  await ensureDiscussionTables();
+  await db().execute({
+    sql: "UPDATE discussions SET begun_at = COALESCE(begun_at, ?) WHERE id = ?",
+    args: [now(), discussionId],
+  });
+}
+
 export async function getDiscussionState(discussionId: number): Promise<DiscussionState | null> {
   await ensureDiscussionTables();
   const d = await db().execute({ sql: "SELECT * FROM discussions WHERE id = ?", args: [discussionId] });
@@ -262,6 +279,7 @@ export async function getDiscussionState(discussionId: number): Promise<Discussi
     question: content?.discussion?.question || String(row.question),
     teacherNote: content?.discussion?.teacherNote ?? null,
     status: row.status === "closed" ? "closed" : "open",
+    begun: row.begun_at != null || turnsRes.rows.length > 0 || notesRes.rows.length > 0 || row.status === "closed",
     secondsPerSpeaker: Number(row.seconds_per_speaker),
     participants: parts.rows.map((p) => {
       const uid = Number(p.user_id);

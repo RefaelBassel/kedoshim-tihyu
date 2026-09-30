@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireTeacher } from "@/lib/api-auth";
 import {
   addNote,
+  beginDiscussion,
   closeDiscussion,
   deleteNote,
   getDiscussionState,
@@ -67,6 +68,10 @@ export async function POST(
       break;
     case "refresh":
       await refreshEligibility(id);
+      break;
+    case "begin":
+      await refreshEligibility(id);
+      await beginDiscussion(id);
       break;
     case "close":
       await closeDiscussion(id);

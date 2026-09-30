@@ -127,7 +127,15 @@ export default function DiscussionControl({ discussionId }: { discussionId: numb
   };
 
   return (
-    <div className="mx-auto max-w-2xl space-y-5 px-4 pb-40 pt-5" dir="rtl">
+    <div className={`mx-auto max-w-2xl space-y-5 px-4 pt-5 ${state.begun ? "pb-40" : "pb-32"}`} dir="rtl">
+      {!state.begun && (
+        <div className="rounded-2xl border-2 border-[color:var(--accent)] px-4 py-3" style={{ background: "color-mix(in srgb, var(--accent) 10%, var(--card))" }}>
+          <p className="font-display text-lg font-extrabold text-[color:var(--primary)]">שלב 1 מתוך 2 · אישור כרטיסי הכניסה</p>
+          <p className="text-xs leading-5 text-[color:var(--primary)]/70">
+            הלוח המוקרן מחכה ומציג רק ״כרטיסי הכניסה נבדקים״, בלי שמות. כאן עוברים על הכרטיסים, נותנים או מסירים, ואז מתחילים את הדיון.
+          </p>
+        </div>
+      )}
       {/* where this runs */}
       <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] px-4 py-3 text-xs text-[color:var(--primary)]/70">
         🖥️ <b>לוח הדיון</b> מוקרן על הפרוייקטור (חלון נפרד) · 🎫 <b>הכרטיסים, השעון והשאלה</b> — כאן, בטלפון או במחשב. כל מה שתעשי כאן מופיע שם תוך שנייה.
@@ -189,8 +197,9 @@ export default function DiscussionControl({ discussionId }: { discussionId: numb
         )}
       </section>
 
-      {/* the clock */}
+      {/* the clock — only once the debate has begun */}
       <section
+        hidden={!state.begun}
         className={`rounded-2xl border-2 p-4 ${active ? "border-[color:var(--accent)] bg-[color:var(--accent)]/6" : "border-[color:var(--border)] bg-[color:var(--card)]"}`}
       >
         <div className="flex items-center justify-between gap-3">
@@ -334,8 +343,26 @@ export default function DiscussionControl({ discussionId }: { discussionId: numb
         </a>
       </div>
 
+      {!state.begun && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[color:var(--border)] bg-[color:var(--card)]/95 px-4 pb-4 pt-3 shadow-[0_-10px_30px_-20px_rgba(46,36,56,0.4)] backdrop-blur">
+          <div className="mx-auto flex max-w-2xl flex-wrap items-center justify-between gap-3">
+            <p className="text-sm font-bold text-[color:var(--primary)]">
+              🎫 {approved.length} מתוך {state.participants.length} עם כרטיס
+            </p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => act({ action: "begin" })}
+              className="rounded-full bg-[color:var(--success)] px-6 py-3 text-base font-extrabold text-white shadow-lg transition hover:scale-[1.02] active:scale-95 disabled:opacity-50"
+            >
+              ✓ הכרטיסים מאושרים — להתחיל את הדיון
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* the composer — sticky at the bottom, always one thumb away */}
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[color:var(--border)] bg-[color:var(--card)]/95 px-4 pb-4 pt-3 shadow-[0_-10px_30px_-20px_rgba(46,36,56,0.4)] backdrop-blur">
+      <div hidden={!state.begun} className="fixed inset-x-0 bottom-0 z-40 border-t border-[color:var(--border)] bg-[color:var(--card)]/95 px-4 pb-4 pt-3 shadow-[0_-10px_30px_-20px_rgba(46,36,56,0.4)] backdrop-blur">
         <div className="mx-auto max-w-2xl">
           <div className="mb-2 flex flex-wrap items-center gap-1.5">
             <span className="text-[11px] font-bold text-[color:var(--primary)]/60">מי אמר/ה:</span>
