@@ -4,6 +4,18 @@ import { vayikra16b, vayikra16bMainPassage } from "./vayikra-16-2";
 import { vayikra16c, vayikra16cMainPassage } from "./vayikra-16-3";
 import { vayikra16d, vayikra16dMainPassage } from "./vayikra-16-4";
 import { vayikra16e, vayikra16eMainPassage } from "./vayikra-16-5";
+import { nedava1, nedava1MainPassage, nedava2, nedava2MainPassage, nedava3, nedava3MainPassage } from "./nedava";
+import { miluim1, miluim1MainPassage, miluim2, miluim2MainPassage, miluim3, miluim3MainPassage } from "./miluim";
+import { tahara1, tahara1MainPassage, tahara2, tahara2MainPassage, tahara3, tahara3MainPassage } from "./tahara";
+import { kedusha1, kedusha1MainPassage, kedusha2, kedusha2MainPassage } from "./kedusha";
+import { kedoshim1, kedoshim1MainPassage, kedoshim2, kedoshim2MainPassage, kedoshim3, kedoshim3MainPassage } from "./kedoshim";
+import { moadim1, moadim1MainPassage, moadim2, moadim2MainPassage, moadim3, moadim3MainPassage } from "./moadim";
+import { brit1, brit1MainPassage, brit2, brit2MainPassage } from "./brit";
+import { shaul1, shaul1MainPassage, shaul2, shaul2MainPassage, shaul3, shaul3MainPassage } from "./shaul";
+import { melech1, melech1MainPassage, melech2, melech2MainPassage, melech3, melech3MainPassage } from "./melech";
+import { batsheva1, batsheva1MainPassage, batsheva2, batsheva2MainPassage, batsheva3, batsheva3MainPassage, batsheva4, batsheva4MainPassage } from "./batsheva";
+import { avshalom1, avshalom1MainPassage, avshalom2, avshalom2MainPassage, avshalom3, avshalom3MainPassage, avshalom4, avshalom4MainPassage } from "./avshalom";
+import { mifkad1, mifkad1MainPassage, mifkad2, mifkad2MainPassage } from "./mifkad";
 import printManifest from "./print-manifest.json";
 
 // Registry of task content, keyed by content_ref stored on the tasks table.
@@ -19,6 +31,41 @@ export const TASK_REGISTRY: Record<string, RegisteredTask> = {
   "vayikra-16-3": { content: vayikra16c, mainPassage: vayikra16cMainPassage },
   "vayikra-16-4": { content: vayikra16d, mainPassage: vayikra16dMainPassage },
   "vayikra-16-5": { content: vayikra16e, mainPassage: vayikra16eMainPassage },
+  "nedava-1": { content: nedava1, mainPassage: nedava1MainPassage },
+  "nedava-2": { content: nedava2, mainPassage: nedava2MainPassage },
+  "nedava-3": { content: nedava3, mainPassage: nedava3MainPassage },
+  "miluim-1": { content: miluim1, mainPassage: miluim1MainPassage },
+  "miluim-2": { content: miluim2, mainPassage: miluim2MainPassage },
+  "miluim-3": { content: miluim3, mainPassage: miluim3MainPassage },
+  "tahara-1": { content: tahara1, mainPassage: tahara1MainPassage },
+  "tahara-2": { content: tahara2, mainPassage: tahara2MainPassage },
+  "tahara-3": { content: tahara3, mainPassage: tahara3MainPassage },
+  "kedusha-1": { content: kedusha1, mainPassage: kedusha1MainPassage },
+  "kedusha-2": { content: kedusha2, mainPassage: kedusha2MainPassage },
+  "kedoshim-1": { content: kedoshim1, mainPassage: kedoshim1MainPassage },
+  "kedoshim-2": { content: kedoshim2, mainPassage: kedoshim2MainPassage },
+  "kedoshim-3": { content: kedoshim3, mainPassage: kedoshim3MainPassage },
+  "moadim-1": { content: moadim1, mainPassage: moadim1MainPassage },
+  "moadim-2": { content: moadim2, mainPassage: moadim2MainPassage },
+  "moadim-3": { content: moadim3, mainPassage: moadim3MainPassage },
+  "brit-1": { content: brit1, mainPassage: brit1MainPassage },
+  "brit-2": { content: brit2, mainPassage: brit2MainPassage },
+  "shaul-1": { content: shaul1, mainPassage: shaul1MainPassage },
+  "shaul-2": { content: shaul2, mainPassage: shaul2MainPassage },
+  "shaul-3": { content: shaul3, mainPassage: shaul3MainPassage },
+  "melech-1": { content: melech1, mainPassage: melech1MainPassage },
+  "melech-2": { content: melech2, mainPassage: melech2MainPassage },
+  "melech-3": { content: melech3, mainPassage: melech3MainPassage },
+  "batsheva-1": { content: batsheva1, mainPassage: batsheva1MainPassage },
+  "batsheva-2": { content: batsheva2, mainPassage: batsheva2MainPassage },
+  "batsheva-3": { content: batsheva3, mainPassage: batsheva3MainPassage },
+  "batsheva-4": { content: batsheva4, mainPassage: batsheva4MainPassage },
+  "avshalom-1": { content: avshalom1, mainPassage: avshalom1MainPassage },
+  "avshalom-2": { content: avshalom2, mainPassage: avshalom2MainPassage },
+  "avshalom-3": { content: avshalom3, mainPassage: avshalom3MainPassage },
+  "avshalom-4": { content: avshalom4, mainPassage: avshalom4MainPassage },
+  "mifkad-1": { content: mifkad1, mainPassage: mifkad1MainPassage },
+  "mifkad-2": { content: mifkad2, mainPassage: mifkad2MainPassage },
 };
 
 export function getTaskContent(ref: string): RegisteredTask | null {

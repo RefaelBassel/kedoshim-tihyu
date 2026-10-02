@@ -2057,7 +2057,7 @@ function InteractivePassage({
             : undefined;
           return (
           <span
-            key={verse.num}
+            key={`${vi}-${verse.num}`}
             style={
               playingThis
                 ? { background: "rgba(185,106,59,0.12)", borderRadius: 6 }
@@ -2399,7 +2399,7 @@ function HelpVerses({
             className="font-mikra text-[18px] leading-[2.1] text-[color:var(--foreground)]"
             style={{ textAlign: "justify", textAlignLast: "right" }}
           >
-            {verses.map((v) => {
+            {verses.map((v, vi) => {
               const loc = resolveVerse(v.num, undefined, {
                 bookId: audioCtx.bookId,
                 fallbackChapter: chapterHint,
@@ -2410,7 +2410,7 @@ function HelpVerses({
               );
               return (
                 <span
-                  key={v.num}
+                  key={`${vi}-${v.num}`}
                   onClick={
                     playable ? () => vAudio.play(loc!.chapter, loc!.idx) : undefined
                   }
