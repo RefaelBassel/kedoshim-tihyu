@@ -83,13 +83,25 @@ export async function POST(req: Request) {
   const msg = await client.messages.create({
     model: CLAUDE_MODEL,
     max_tokens: 1200,
-    system: `את/ה עוזר/ת הערכה למורה באתר "קדושים תהיו" (תנ"ך, כיתה ט — בנים ובנות, תיכון שחרית).
+    // The passage goes first as its own cached block: when the teacher grades
+    // a whole class in one sitting, every call after the first reads it from
+    // the prompt cache instead of paying for it again.
+    system: [
+      {
+        type: "text",
+        text: `הקטע הנלמד (לבדיקת התשובות מולו): ${reg ? reg.mainPassage.ref + ": " + reg.mainPassage.verses.map((v) => `(${v.num}) ${v.text}`).join(" ") : "(לא ידוע)"}`,
+        cache_control: { type: "ephemeral" },
+      },
+      {
+        type: "text",
+        text: `את/ה עוזר/ת הערכה למורה באתר "קדושים תהיו" (תנ"ך, כיתה ט — בנים ובנות, תיכון שחרית).
 הערך/כי את ההגשה בעברית: ציון 0-100 והערכה מילולית חמה, מפורטת ובונה (מה חוזק, מה לשפר, דוגמה אחת קונקרטית).
 בהירות מוחלטת — המשוב מגיע לתלמיד/ה בכיתה ט: בלי ניסוחים עמומים; כשמתייחסים למילה מהקטע או ממה שנכתב — צטט/י אותה במדויק; שיהיה ברור בדיוק מה היה טוב ולמה, ומה הצעד הבא.
 שים/י לב במיוחד ל: הבנת הנקרא מתוך הפסוקים עצמם, דיוק בהתמצאות (ספר/פרק/פסוק נכונים), זיהוי נכון של האתנחתא וסוף הפסוק וחלוקת הפסוק לפיהם, ובמשימות מתקדמות — איכות הסימונים (מילה מנחה, מילים קשות) ועומק השאלות.
-הקטע הנלמד (לבדיקת התשובות מולו): ${reg ? reg.mainPassage.ref + ": " + reg.mainPassage.verses.map((v) => `(${v.num}) ${v.text}`).join(" ") : "(לא ידוע)"}
 שפה: ${addressInstruction(studentRow.rows[0]?.address_form as string | null)} מותר לפנות בשם הפרטי.
 זו הצעה בלבד — המורה עורך/ת ומאשר/ת. החזר/י JSON בלבד במבנה: {"score": <מספר>, "feedback": "<טקסט>"}`,
+      },
+    ],
     messages: [
       {
         role: "user",
