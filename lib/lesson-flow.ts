@@ -31,3 +31,14 @@ export const KIND_WORD: Record<BlockKind, { emoji: string; label: string }> = {
   discussion: { emoji: "💬", label: "דיון" },
   study: { emoji: "📖", label: "לימוד" },
 };
+
+// Which block comes after the current one: the first block further on that
+// was not run yet; when there is none, the first earlier one she skipped;
+// -1 when every block was run. The order is hers — she may jump anywhere —
+// so "next" always means "the next thing still waiting".
+export function nextIndex(plan: { blocks: { done?: boolean }[]; current: number }): number {
+  const n = plan.blocks.length;
+  for (let i = plan.current + 1; i < n; i++) if (!plan.blocks[i].done) return i;
+  for (let i = 0; i < plan.current && i < n; i++) if (!plan.blocks[i].done) return i;
+  return -1;
+}

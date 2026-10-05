@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { LessonPlan, BlockKind } from "@/lib/lesson-plan";
+import { nextIndex } from "@/lib/lesson-flow";
 
 // The live lesson strip — teacher only, on every teacher page once today's
 // plan is started: what is happening NOW, what comes next, the right tool
@@ -61,7 +62,11 @@ export default function LessonStrip() {
         body: JSON.stringify({ action }),
       });
       const d = await r.json();
-      if (d.ok) setPlan(d.plan);
+      if (d.ok) {
+        setPlan(d.plan);
+        // the reels page and the dock show the same lesson — tell them at once
+        window.dispatchEvent(new Event("lesson-plan-changed"));
+      }
     } finally {
       setBusy(false);
     }
@@ -69,7 +74,7 @@ export default function LessonStrip() {
 
   if (!plan || plan.current < 0 || plan.blocks.length === 0) return null;
   const cur = plan.blocks[plan.current];
-  const next = plan.blocks[plan.current + 1];
+  const next = plan.blocks[nextIndex(plan)];
   const k = KIND[cur.kind];
   const tools = toolsFor(cur.kind, cur.taskId);
 
@@ -109,7 +114,7 @@ export default function LessonStrip() {
               הבא: {KIND[next.kind].emoji} {KIND[next.kind].label} · {next.title}
             </span>
           ) : (
-            <span className="text-[color:var(--primary)]/60">זה הבלוק האחרון</span>
+            <span className="text-[color:var(--primary)]/60">זה השלב האחרון שנשאר</span>
           )}
           <button
             type="button"

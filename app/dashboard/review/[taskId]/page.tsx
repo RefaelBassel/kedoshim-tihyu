@@ -31,7 +31,8 @@ export default async function ReviewDeckPage({
   const plan = await getPlan();
   const cur = plan.current >= 0 ? plan.blocks[plan.current] : null;
   const isCurrent = !!cur && cur.kind === "review" && cur.taskId === task.id;
-  const nxt = isCurrent ? (plan.blocks[plan.current + 1] ?? null) : null;
+  const { nextIndex } = await import("@/lib/lesson-flow");
+  const nxt = isCurrent ? (plan.blocks[nextIndex(plan)] ?? null) : null;
 
   return (
     <>

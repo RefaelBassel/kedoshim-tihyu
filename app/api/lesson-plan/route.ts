@@ -4,7 +4,7 @@ import {
   getPlan,
   unitsOverview,
   savePlan,
-  setCurrent,
+  movePlan,
   stopPlan,
   type PlanBlock,
 } from "@/lib/lesson-plan";
@@ -28,6 +28,8 @@ export async function PUT(req: Request) {
       kind: b.kind === "review" || b.kind === "discussion" || b.kind === "study" ? b.kind : null,
       taskId: Number(b.taskId),
       title: String(b.title ?? "").slice(0, 200),
+      id: typeof b.id === "string" ? b.id.slice(0, 60) : undefined,
+      done: b.done === true ? true : undefined,
     }))
     .filter((b: { kind: string | null; taskId: number }) => b.kind && Number.isInteger(b.taskId)) as PlanBlock[];
   await savePlan(blocks, guard.userId);
@@ -39,19 +41,18 @@ export async function POST(req: Request) {
   const guard = await requireTeacher();
   if (!guard.ok) return guard.res;
   const body = await req.json().catch(() => ({}));
-  const plan = await getPlan();
   switch (String(body?.action)) {
     case "start":
-      await setCurrent(0);
+      await movePlan("start");
       break;
     case "next":
-      await setCurrent(plan.current + 1);
+      await movePlan("next");
       break;
     case "prev":
-      await setCurrent(Math.max(0, plan.current - 1));
+      await movePlan("prev");
       break;
     case "goto":
-      await setCurrent(Number(body.index));
+      await movePlan("goto", Number(body.index));
       break;
     case "stop":
       await stopPlan();

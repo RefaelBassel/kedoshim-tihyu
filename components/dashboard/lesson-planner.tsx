@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { LessonPlan, PlanBlock, BlockKind, UnitOverview } from "@/lib/lesson-plan";
 import Wheel3D, { type WheelItem } from "./wheel-3d";
 import TicketsStrip from "./tickets-strip";
-import { projectorUrl } from "@/lib/lesson-flow";
+import { nextIndex, projectorUrl } from "@/lib/lesson-flow";
 
 // the one tool each block needs, in plain words
 export function toolsFor(kind: BlockKind, taskId: number): { href: string; label: string; newTab?: boolean; primary?: boolean }[] {
@@ -32,6 +33,12 @@ export function toolsFor(kind: BlockKind, taskId: number): { href: string; label
 // real slide-into-place; ▶ starts the lesson at once. The same builder
 // renders full-size on the lesson page and mini in the floating dock on
 // every other teacher page.
+//
+// Everything is the teacher's to decide, before and during the lesson: a
+// reel's KIND changes from its header (so any set of reels can be rebuilt
+// from a single one), the chips under the row add a reel of any kind, and
+// while the lesson runs she can jump to any block, and open the same reels
+// to reorder / add / remove / re-roll without stopping.
 
 export const KIND: Record<BlockKind, { emoji: string; label: string; minutes: number; color: string }> = {
   review: { emoji: "🔁", label: "חזרה", minutes: 5, color: "#b96a3b" },
@@ -46,12 +53,18 @@ interface Drum {
   kind: BlockKind;
   ref: string | null; // the unit's content ref — it may have no task yet
 }
+const KINDS: BlockKind[] = ["review", "discussion", "study"];
+// a fresh reel identity (called from tap handlers only)
+const freshId = (kind: BlockKind) => `d${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36)}-${kind}`;
+const MAX_REELS = 12;
 // a unit the class actually has: published and assigned to someone
 export function assignedOK(u: UnitOverview | undefined | null): boolean {
   return !!u && u.taskId != null && u.assigned > 0;
 }
 
 export function doneFor(u: UnitOverview, kind: BlockKind): boolean {
+  // the teacher said "not done" — her word beats what the data suggests
+  if (u.off?.includes(kind)) return false;
   if (kind === "review") return u.reviewed > 0;
   if (kind === "discussion") return u.discussed > 0;
   return u.studied > 0 || (u.assigned > 0 && u.complete >= Math.ceil(u.assigned * 0.6));
@@ -101,13 +114,13 @@ export function useLessonPlan() {
       window.removeEventListener("lesson-plan-changed", onChanged);
     };
   }, [load]);
-  const act = async (action: string) => {
+  const act = async (action: string, extra?: Record<string, unknown>) => {
     setBusy(true);
     try {
       const r = await fetch("/api/lesson-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ action, ...(extra ?? {}) }),
       });
       apply(await r.json());
     } finally {
@@ -163,17 +176,20 @@ export default function LessonPlanner() {
   const [popover, setPopover] = useState<{ ref: string; x: number; y: number } | null>(null);
   // the popover shows the LIVE unit, so a tick inside it is visible at once
   const popUnit = popover ? units.find((u) => u.ref === popover.ref) ?? null : null;
+  // the reels can be opened while the lesson runs — it keeps running
+  const [editing, setEditing] = useState(false);
   if (!plan) return <p className="p-6 text-center text-sm text-[color:var(--primary)]/60">טוען…</p>;
   const running = plan.current >= 0 && plan.blocks.length > 0;
   return (
     <div className="space-y-8" dir="rtl" onClick={() => setPopover(null)}>
-      {running ? (
-        <RunningBar plan={plan} busy={busy} act={act} />
-      ) : (
+      {running && <RunningBar plan={plan} busy={busy} act={act} editing={editing} onEdit={() => setEditing((e) => !e)} />}
+      {(!running || editing) && (
         <WheelBuilder
+          key={running ? "edit" : "build"}
           units={units}
           savedBlocks={plan.blocks}
           busy={busy}
+          live={running ? { currentId: plan.blocks[plan.current]?.id ?? null, onDone: () => setEditing(false) } : undefined}
           onPublish={publishUnits}
           onStart={async (blocks) => {
             setBusy(true);
@@ -208,10 +224,14 @@ export function WheelBuilder({
   onPublish,
   onShowUnit,
   mini = false,
+  live,
 }: {
   units: UnitOverview[];
   savedBlocks: PlanBlock[];
   busy: boolean;
+  // set while a lesson is running: the reels edit the plan in place (the
+  // lesson goes on, "now" stays on its reel) and the big button closes them
+  live?: { currentId: string | null; onDone: () => void };
   onStart: (blocks: PlanBlock[]) => Promise<void>;
   onPersist: (blocks: PlanBlock[]) => Promise<void>;
   // give units to the class (returns the fresh unit list); the start button
@@ -231,7 +251,7 @@ export function WheelBuilder({
   useEffect(() => {
     if (drums != null || units.length === 0) return;
     if (savedBlocks.length > 0)
-      setDrums(savedBlocks.map((b, i) => ({ id: `d${i}-${b.kind}`, kind: b.kind, ref: units.find((u) => u.taskId === b.taskId)?.ref ?? null })));
+      setDrums(savedBlocks.map((b, i) => ({ id: b.id ?? `d${i}-${b.kind}`, kind: b.kind, ref: units.find((u) => u.taskId === b.taskId)?.ref ?? null })));
     else setDrums((["review", "discussion", "study"] as BlockKind[]).map((kind, i) => ({ id: `d${i}-${kind}`, kind, ref: defaultFor(kind) })));
   }, [units, savedBlocks, drums, defaultFor]);
   // a reel the teacher never rolled sits on the default; when she ticks a
@@ -241,7 +261,9 @@ export function WheelBuilder({
     const cur: Record<BlockKind, string | null> = { review: defaultFor("review"), discussion: defaultFor("discussion"), study: defaultFor("study") };
     const prev = prevDefaults.current;
     prevDefaults.current = cur;
-    if (!prev || !drums) return;
+    // mid-lesson the reels are the running plan itself: a block that was just
+    // run must stay on its unit, not slide on to the next one
+    if (!prev || !drums || live) return;
     const moved = (["review", "discussion", "study"] as BlockKind[]).filter((k) => prev[k] !== cur[k]);
     if (moved.length === 0) return;
     setDrums((ds) => {
@@ -268,11 +290,29 @@ export function WheelBuilder({
     ds
       .map((d) => ({ d, u: us.find((u) => u.ref === d.ref) }))
       .filter((x) => x.u?.taskId != null)
-      .map(({ d, u }) => ({ kind: d.kind, taskId: u!.taskId as number, title: u!.title }));
+      .map(({ d, u }) => ({ kind: d.kind, taskId: u!.taskId as number, title: u!.title, id: d.id }));
   const update = (next: Drum[]) => {
     setDrums(next);
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => void onPersist(toBlocks(next)), 600);
+  };
+  // a reel changes its kind from its header. A reel she never rolled (still
+  // resting on its kind's "next in line") moves to the new kind's next in line.
+  const changeKind = (id: string, kind: BlockKind) => {
+    if (!drums) return;
+    update(drums.map((d) => (d.id !== id || d.kind === kind ? d : { ...d, kind, ref: d.ref === defaultFor(d.kind) ? defaultFor(kind) : d.ref })));
+  };
+  // a new reel of any kind, at the end of the row: on the unit after the
+  // last reel of that kind, or on the kind's next in line when there is none
+  const addKind = (kind: BlockKind) => {
+    if (!drums || drums.length >= MAX_REELS) return;
+    const last = [...drums].reverse().find((d) => d.kind === kind);
+    let ref = defaultFor(kind);
+    if (last) {
+      const idx = units.findIndex((u) => u.ref === last.ref);
+      ref = units[Math.min(units.length - 1, Math.max(0, idx + 1))]?.ref ?? last.ref;
+    }
+    update([...drums, { id: freshId(kind), kind, ref }]);
   };
 
   // ---- drag a reel to reorder: the dragged reel follows the pointer 1:1
@@ -408,6 +448,20 @@ export function WheelBuilder({
       setStarting(false);
     }
   };
+  // closing the reels mid-lesson: give the class any unit it does not have
+  // yet, save at once (not after the debounce), and fold the reels away
+  const finishEdit = async () => {
+    setStarting(true);
+    try {
+      if (saveTimer.current) window.clearTimeout(saveTimer.current);
+      let us = units;
+      if (missingRefs.length > 0 && onPublish) us = await onPublish(missingRefs);
+      await onPersist(toBlocks(drums, us));
+      live?.onDone();
+    } finally {
+      setStarting(false);
+    }
+  };
   const gapPx = mini ? 10 : 14;
   const maxW = mini ? 118 : 156;
   const drumW = rowW > 0 ? Math.max(64, Math.min(maxW, Math.floor((rowW - gapPx * (drums.length - 1)) / drums.length))) : maxW;
@@ -477,11 +531,14 @@ export function WheelBuilder({
               onAddSame={() => {
                 const idx = units.findIndex((u) => u.ref === d.ref);
                 const nextUnit = units[Math.min(units.length - 1, Math.max(0, idx + 1))];
-                const fresh: Drum = { id: `d${Date.now().toString(36)}-${d.kind}`, kind: d.kind, ref: nextUnit?.ref ?? d.ref };
+                if (drums.length >= MAX_REELS) return;
+                const fresh: Drum = { id: freshId(d.kind), kind: d.kind, ref: nextUnit?.ref ?? d.ref };
                 const next = [...drums];
                 next.splice(i + 1, 0, fresh);
                 update(next);
               }}
+              onKind={(kind) => changeKind(d.id, kind)}
+              isNow={!!live && live.currentId === d.id}
               onRemove={() => update(drums.filter((x) => x.id !== d.id))}
               onShowUnit={onShowUnit}
             />
@@ -489,19 +546,49 @@ export function WheelBuilder({
         })}
       </div>
 
-      <div className={`flex flex-wrap items-center justify-between gap-2 ${mini ? "mt-1.5 px-1" : "mt-2 px-1"}`}>
-        <button
-          type="button"
-          disabled={busy || starting || !ready}
-          onClick={start}
-          className={`rounded-full font-extrabold text-white shadow-lg transition hover:scale-[1.03] active:scale-95 disabled:opacity-40 disabled:hover:scale-100 ${starting ? "animate-pulse" : ""} ${mini ? "px-5 py-2 text-sm" : "px-7 py-3 text-base"}`}
-          style={{ background: missingRefs.length > 0 ? AHEAD_COLOR : "var(--accent)" }}
-          title={missingRefs.length > 0 ? "היחידה עוד לא הוקצתה לכיתה — תוקצה לכולן (הגשה בעוד שבוע) ואז השיעור יתחיל" : undefined}
-        >
-          {starting ? (missingRefs.length > 0 ? "מקצים לכיתה…" : "מתחילים…") : missingRefs.length > 0 ? "📣 להקצות לכיתה ולהתחיל" : "▶ להתחיל את השיעור"}
-        </button>
+      {/* a new reel of ANY kind, one tap */}
+      <div className={`flex flex-wrap items-center gap-1.5 ${mini ? "px-1 pt-0.5" : "px-1 pt-1"}`}>
+        <span className={`font-bold text-[color:var(--primary)]/60 ${mini ? "text-[10px]" : "text-xs"}`}>＋ גלגל חדש:</span>
+        {KINDS.map((kind) => (
+          <button
+            key={kind}
+            type="button"
+            data-add-reel={kind}
+            disabled={drums.length >= MAX_REELS}
+            onClick={() => addKind(kind)}
+            className={`rounded-full border-2 bg-[color:var(--card)] font-extrabold shadow-sm transition hover:scale-[1.05] active:scale-90 disabled:opacity-35 ${mini ? "px-2.5 py-0.5 text-[11px]" : "px-3.5 py-1 text-sm"}`}
+            style={{ borderColor: KIND[kind].color, color: KIND[kind].color }}
+          >
+            ＋ {KIND[kind].emoji} {KIND[kind].label}
+          </button>
+        ))}
+      </div>
+
+      <div className={`flex flex-wrap items-center justify-between gap-2 ${mini ? "mt-1.5 px-1" : "mt-3 px-1"}`}>
+        {live ? (
+          <button
+            type="button"
+            disabled={busy || starting || !ready}
+            onClick={finishEdit}
+            className={`rounded-full font-extrabold text-white shadow-lg transition hover:scale-[1.03] active:scale-95 disabled:opacity-40 disabled:hover:scale-100 ${starting ? "animate-pulse" : ""} ${mini ? "px-5 py-2 text-sm" : "px-7 py-3 text-base"}`}
+            style={{ background: "var(--success)" }}
+          >
+            {starting ? "שומרים…" : "✓ סיימתי לשנות — ממשיכים"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={busy || starting || !ready}
+            onClick={start}
+            className={`rounded-full font-extrabold text-white shadow-lg transition hover:scale-[1.03] active:scale-95 disabled:opacity-40 disabled:hover:scale-100 ${starting ? "animate-pulse" : ""} ${mini ? "px-5 py-2 text-sm" : "px-7 py-3 text-base"}`}
+            style={{ background: missingRefs.length > 0 ? AHEAD_COLOR : "var(--accent)" }}
+            title={missingRefs.length > 0 ? "היחידה עוד לא הוקצתה לכיתה — תוקצה לכולן (הגשה בעוד שבוע) ואז השיעור יתחיל" : undefined}
+          >
+            {starting ? (missingRefs.length > 0 ? "מקצים לכיתה…" : "מתחילים…") : missingRefs.length > 0 ? "📣 להקצות לכיתה ולהתחיל" : "▶ להתחיל את השיעור"}
+          </button>
+        )}
         <span className={`text-[color:var(--primary)]/50 ${mini ? "text-[10px]" : "text-[11px]"}`}>
-          {missingRefs.length > 0 ? "📣 יחידה שעוד לא הוקצתה תוקצה לכל הכיתה בהתחלה · " : ""}~{total} דק׳ · מעלה-מטה מגלגל · לצדדים מסדר · ＋ עוד גלגל
+          {live ? "השיעור ממשיך לרוץ — כל שינוי נשמר מיד · " : missingRefs.length > 0 ? "📣 יחידה שעוד לא הוקצתה תוקצה לכל הכיתה בהתחלה · " : ""}~{total} דק׳ · מעלה-מטה מגלגל · לצדדים מסדר · לחיצה על שם הגלגל מחליפה סוג
         </span>
       </div>
     </section>
@@ -523,10 +610,14 @@ function DrumView({
   onGripUp,
   onSelect,
   onAddSame,
+  onKind,
+  isNow,
   onRemove,
   onShowUnit,
 }: {
   drum: Drum;
+  onKind: (kind: BlockKind) => void;
+  isNow: boolean; // the block running right now (reels opened mid-lesson)
   units: UnitOverview[];
   defaultRef: string | null;
   style?: React.CSSProperties;
@@ -553,6 +644,29 @@ function DrumView({
   const state: "done" | "ahead" | "next" = selectedDone ? "done" : selectedAhead ? "ahead" : "next";
   const tone = state === "done" ? DONE_COLOR : state === "ahead" ? AHEAD_COLOR : k.color;
 
+  // the kind menu: opens under the reel's name. It is rendered in a portal
+  // so the reel's own greying / dragging transform never touches it.
+  const kindBtn = useRef<HTMLButtonElement | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [menu]);
+  const openMenu = () => {
+    const r = kindBtn.current?.getBoundingClientRect();
+    if (!r) return;
+    const w = 148;
+    setMenu((m) => (m ? null : { x: Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w)), y: r.bottom + 6 }));
+  };
+
   const items: WheelItem[] = units.map((u, i) => {
     const done = doneFor(u, drum.kind);
     const ahead = defaultIdx >= 0 && i > defaultIdx;
@@ -574,11 +688,58 @@ function DrumView({
         style={{ background: tone, touchAction: "none", transition: "background 0.3s" }}
         title="גררי כדי לשנות סדר"
       >
-        <span className={`truncate font-extrabold ${compact ? "text-[10px]" : mini ? "text-xs" : "text-sm"}`}>
+        {/* the reel's name is a button: tap → choose its kind */}
+        <button
+          ref={kindBtn}
+          type="button"
+          data-kind-button
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); openMenu(); }}
+          aria-haspopup="menu"
+          aria-expanded={!!menu}
+          aria-label={`סוג הגלגל: ${k.label} — לחיצה מחליפה`}
+          title="לחיצה מחליפה את סוג הגלגל"
+          className={`flex min-w-0 items-center gap-0.5 truncate rounded-full bg-white/15 font-extrabold transition hover:bg-white/30 active:scale-95 ${compact ? "px-1 py-0.5 text-[10px]" : mini ? "px-1.5 py-0.5 text-xs" : "px-2 py-0.5 text-sm"}`}
+        >
           {/* compact reels leave the ✓ / ⏭ to the ribbon — the word must fit */}
-          {compact ? "" : state === "done" ? "✓ " : state === "ahead" ? "⏭ " : ""}
-          {k.emoji} {k.label}
-        </span>
+          <span className="truncate">
+            {compact ? "" : state === "done" ? "✓ " : state === "ahead" ? "⏭ " : ""}
+            {k.emoji} {k.label}
+          </span>
+          <span aria-hidden className="text-[9px] opacity-80">▾</span>
+        </button>
+        {menu &&
+          createPortal(
+            <div
+              role="menu"
+              dir="rtl"
+              className="note-pop fixed z-[97] w-[148px] rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-1.5 shadow-2xl"
+              style={{ left: menu.x, top: menu.y }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="px-2 pb-1 text-[10px] font-bold text-[color:var(--primary)]/55">סוג הגלגל</p>
+              {KINDS.map((kind) => {
+                const on = kind === drum.kind;
+                return (
+                  <button
+                    key={kind}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={on}
+                    data-kind-option={kind}
+                    onClick={() => { setMenu(null); if (!on) onKind(kind); }}
+                    className="mb-0.5 flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-sm font-extrabold transition active:scale-95"
+                    style={on ? { background: KIND[kind].color, color: "#fff" } : { color: KIND[kind].color, background: `${KIND[kind].color}12` }}
+                  >
+                    <span>{KIND[kind].emoji} {KIND[kind].label}</span>
+                    {on && <span aria-hidden>✓</span>}
+                  </button>
+                );
+              })}
+            </div>,
+            document.body
+          )}
         <span className="flex shrink-0 items-center gap-1">
           {!compact && <span aria-hidden className="text-[10px] tracking-[0.15em] opacity-70">⋮⋮</span>}
           {canRemove && (
@@ -596,6 +757,11 @@ function DrumView({
       </div>
 
       <div className="relative">
+        {isNow && (
+          <span className="pointer-events-none absolute inset-x-0 top-1 z-30 flex justify-center">
+            <span className="rounded-full bg-[color:var(--accent)] px-2 py-0.5 text-[10px] font-extrabold text-white shadow">▶ עכשיו</span>
+          </span>
+        )}
         {state !== "next" && (
           <span
             aria-hidden
@@ -662,8 +828,23 @@ function DrumView({
 // ---------------------------------------------------------------------------
 // Running bar
 // ---------------------------------------------------------------------------
-export function RunningBar({ plan, busy, act, mini = false }: { plan: LessonPlan; busy: boolean; act: (a: string) => Promise<void>; mini?: boolean }) {
+export function RunningBar({
+  plan,
+  busy,
+  act,
+  mini = false,
+  editing = false,
+  onEdit,
+}: {
+  plan: LessonPlan;
+  busy: boolean;
+  act: (a: string, extra?: Record<string, unknown>) => Promise<void>;
+  mini?: boolean;
+  editing?: boolean;
+  onEdit?: () => void; // open / close the reels without stopping the lesson
+}) {
   const cur = plan.blocks[plan.current];
+  const nextAt = nextIndex(plan);
   const curKind = cur ? KIND[cur.kind] : null;
   const tools = cur ? toolsFor(cur.kind, cur.taskId) : [];
   // the debate whose tickets matter now: the one running, else the next one
@@ -699,30 +880,58 @@ export function RunningBar({ plan, busy, act, mini = false }: { plan: LessonPlan
       {debate && (
         <TicketsStrip taskId={debate.taskId} heading={debateIdx === plan.current ? "כרטיסי כניסה לדיון" : "כרטיסי כניסה לדיון הבא"} compact={mini} />
       )}
+      {/* every block is a button: tap → the lesson jumps there, ahead or back,
+          done or not. The order is hers. */}
       <ol className="flex flex-wrap items-center gap-2">
         {plan.blocks.map((b, i) => {
           const k = KIND[b.kind];
           const isNow = plan.current === i;
-          const done = plan.current > i;
+          const done = !!b.done && !isNow;
           return (
-            <li
-              key={`${b.kind}-${b.taskId}-${i}`}
-              className={`flex items-center gap-2 rounded-full border-2 font-bold transition ${mini ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm"} ${done ? "opacity-45 line-through" : ""} ${isNow ? "scale-105 shadow-md" : ""}`}
-              style={{ borderColor: k.color, background: isNow ? k.color : `${k.color}14`, color: isNow ? "#fff" : k.color }}
-              title={b.title}
-            >
-              {i + 1}. {k.emoji} {k.label}
-              {!mini && <span className={`max-w-[140px] truncate text-xs font-semibold ${isNow ? "text-white/85" : "opacity-70"}`}>{shortTitle(b.title)}</span>}
+            <li key={b.id ?? `${b.kind}-${b.taskId}-${i}`}>
+              <button
+                type="button"
+                data-block-chip={i}
+                disabled={busy || isNow}
+                onClick={() => act("goto", { index: i })}
+                aria-current={isNow ? "step" : undefined}
+                className={`flex items-center gap-2 rounded-full border-2 font-bold transition active:scale-95 disabled:cursor-default ${mini ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm"} ${done ? "opacity-55" : ""} ${isNow ? "scale-105 shadow-md" : "hover:scale-[1.04] hover:shadow"}`}
+                style={{ borderColor: k.color, background: isNow ? k.color : `${k.color}14`, color: isNow ? "#fff" : k.color }}
+                title={isNow ? `עכשיו: ${b.title}` : done ? `${b.title} — כבר נעשה היום · לחיצה חוזרת אליו` : `${b.title} — לחיצה קופצת לכאן`}
+              >
+                {done ? "✓" : `${i + 1}.`} {k.emoji} {k.label}
+                {!mini && <span className={`max-w-[140px] truncate text-xs font-semibold ${isNow ? "text-white/85" : "opacity-70"}`}>{shortTitle(b.title)}</span>}
+              </button>
             </li>
           );
         })}
       </ol>
+      <p className={`text-[color:var(--primary)]/50 ${mini ? "text-[10px]" : "text-[11px]"}`}>לחיצה על שלב קופצת אליו — בכל סדר, גם חזרה לשלב שכבר נעשה</p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <button type="button" disabled={busy || plan.current === 0} onClick={() => act("prev")} className="rounded-full border border-[color:var(--border)] px-3 py-1 text-xs font-bold text-[color:var(--primary)] active:scale-95 disabled:opacity-40">→ הקודם</button>
-        {plan.current < plan.blocks.length - 1 ? (
-          <button type="button" disabled={busy} onClick={() => act("next")} className="rounded-full bg-[color:var(--accent)] px-4 py-1 text-sm font-bold text-white shadow active:scale-95 disabled:opacity-40">הבא ←</button>
-        ) : (
-          <button type="button" disabled={busy} onClick={() => act("stop")} className="rounded-full bg-[color:var(--success)] px-4 py-1 text-sm font-bold text-white shadow active:scale-95 disabled:opacity-40">✓ סיום השיעור</button>
+        {nextAt >= 0 && (
+          <button type="button" disabled={busy} onClick={() => act("next")} className="rounded-full bg-[color:var(--accent)] px-4 py-1 text-sm font-bold text-white shadow active:scale-95 disabled:opacity-40">
+            הבא ← {KIND[plan.blocks[nextAt].kind].emoji}
+          </button>
+        )}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => act("stop")}
+          className={`rounded-full px-4 py-1 text-sm font-bold shadow active:scale-95 disabled:opacity-40 ${nextAt >= 0 ? "border-2 border-[color:var(--success)] bg-[color:var(--card)] text-[color:var(--success)]" : "bg-[color:var(--success)] text-white"}`}
+        >
+          ✓ סיום השיעור
+        </button>
+        {onEdit && (
+          <button
+            type="button"
+            data-edit-lesson
+            onClick={onEdit}
+            aria-pressed={editing}
+            className={`rounded-full border-2 px-3 py-1 text-xs font-extrabold transition active:scale-95 ${editing ? "border-[color:var(--accent)] bg-[color:var(--accent)] text-white" : "border-[color:var(--accent)] bg-[color:var(--card)] text-[color:var(--accent)] hover:bg-[color:var(--accent)]/10"}`}
+          >
+            {editing ? "▲ לסגור את הגלגלים" : "✏️ לשנות את השיעור"}
+          </button>
         )}
         <button type="button" disabled={busy} onClick={() => act("cancel")} className="ms-auto text-[10px] font-semibold text-[color:var(--primary)]/50 hover:text-[color:var(--danger)]">לעצור ולתכנן מחדש</button>
       </div>
@@ -742,16 +951,10 @@ function Journey({
   onShowUnit: (u: UnitOverview, x: number, y: number) => void;
   onMark: (taskId: number, kind: BlockKind, on: boolean) => Promise<UnitOverview[]>;
 }) {
-  const [notice, setNotice] = useState<string | null>(null);
+  // her word is final in both directions: any circle can be ticked or cleared
   const toggle = async (u: UnitOverview, kind: BlockKind, on: boolean) => {
     if (u.taskId == null) return;
-    const next = await onMark(u.taskId, kind, on);
-    const fresh = next.find((x) => x.ref === u.ref);
-    if (!on && fresh && doneFor(fresh, kind)) {
-      // the data itself says so — a closed debate, most of the class finished
-      setNotice(kind === "discussion" ? "הדיון הזה באמת התקיים באתר (לוח שנסגר) — אי אפשר לבטל." : "רוב הכיתה כבר סיימה את היחידה באתר — היא נחשבת נלמדה.");
-      window.setTimeout(() => setNotice(null), 3600);
-    }
+    await onMark(u.taskId, kind, on);
   };
   return (
     <section className="relative">
@@ -759,11 +962,6 @@ function Journey({
         <p className="font-display text-lg font-extrabold text-[color:var(--primary)]">🗺️ המסע</p>
         <p className="text-end text-[10px] leading-4 text-[color:var(--primary)]/50">לחיצה על יחידה — פרטים וכלים · לחיצה על עיגול — סימון ״כבר נעשה״ (ושוב — ביטול)</p>
       </div>
-      {notice && (
-        <div className="note-pop pointer-events-none fixed inset-x-0 bottom-24 z-[96] flex justify-center px-4">
-          <p className="rounded-full bg-[color:var(--ink,#2e2438)] px-4 py-2 text-xs font-bold text-white shadow-xl">{notice}</p>
-        </div>
-      )}
       <ol className="space-y-2">
         {units.map((u, i) => {
           const published = u.taskId != null;

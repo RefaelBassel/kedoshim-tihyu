@@ -24,6 +24,7 @@ export default function LessonDock() {
 
   const { plan, units, busy, setBusy, act, persist, markUnit, markUpTo, publishUnits } = useLessonPlan();
   const [folded, setFolded] = useState(true);
+  const [editing, setEditing] = useState(false);
   const [popover, setPopover] = useState<{ ref: string; x: number; y: number } | null>(null);
   const popUnit: UnitOverview | null = popover ? units.find((u) => u.ref === popover.ref) ?? null : null;
   useEffect(() => {
@@ -81,13 +82,14 @@ export default function LessonDock() {
 
           {!folded && (
             <div className="border-t border-[color:var(--border)] px-2 pb-2 pt-2 sm:px-3" onClick={() => setPopover(null)}>
-              {running ? (
-                <RunningBar plan={plan} busy={busy} act={act} mini />
-              ) : (
+              {running && <RunningBar plan={plan} busy={busy} act={act} mini editing={editing} onEdit={() => setEditing((e) => !e)} />}
+              {(!running || editing) && (
                 <WheelBuilder
+                  key={running ? "edit" : "build"}
                   units={units}
                   savedBlocks={plan.blocks}
                   busy={busy}
+                  live={running ? { currentId: plan.blocks[plan.current]?.id ?? null, onDone: () => setEditing(false) } : undefined}
                   onPublish={publishUnits}
                   mini
                   onStart={async (blocks) => {

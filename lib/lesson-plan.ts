@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { taskOrderIndex, positionLabel } from "@/content/tasks/registry";
+import { nextIndex } from "./lesson-flow";
 
 // מתכנן השיעור — today's lesson as an ordered list of blocks the teacher
 // composes in two taps: review / debate / study, each on a unit. The order
@@ -12,6 +13,8 @@ export interface PlanBlock {
   kind: BlockKind;
   taskId: number;
   title: string;
+  id?: string; // stable identity of the reel — the "now" pointer follows it through edits
+  done?: boolean; // run already in the lesson that is going on
 }
 export interface LessonPlan {
   day: string; // YYYY-MM-DD in Israel
@@ -69,14 +72,36 @@ export async function getPlan(day = todayIsrael()): Promise<LessonPlan> {
 export async function savePlan(blocks: PlanBlock[], teacherId: number, day = todayIsrael()) {
   await ensurePlanTable();
   const existing = await getPlan(day);
-  const current = Math.min(existing.current, blocks.length - 1);
+  const running = existing.current >= 0;
+  const seen = new Set<string>();
+  const ranAlready = new Set(existing.blocks.filter((b) => b.done && b.id).map((b) => `${b.id}|${b.kind}|${b.taskId}`));
+  const clean = blocks.slice(0, 12).map((b, i) => {
+    let id = b.id && b.id.length <= 60 ? b.id : `b${i}-${now()}`;
+    while (seen.has(id)) id += `-${i}`;
+    seen.add(id);
+    const out: PlanBlock = { kind: b.kind, taskId: b.taskId, title: b.title, id };
+    if (running && ranAlready.has(`${id}|${b.kind}|${b.taskId}`)) out.done = true;
+    return out;
+  });
+  // The plan may be edited while the lesson runs — reorder, add, remove,
+  // change a reel's kind or unit. "Now" stays on the same reel wherever it
+  // moved; if she removed it, on whatever took its place.
+  let current = -1;
+  let startedAt = existing.startedAt;
+  if (running && clean.length > 0) {
+    const curId = existing.blocks[existing.current]?.id;
+    const at = curId ? clean.findIndex((b) => b.id === curId) : -1;
+    current = at >= 0 ? at : Math.min(existing.current, clean.length - 1);
+  } else {
+    startedAt = null;
+  }
   await db().execute({
     sql: `INSERT INTO lesson_plans (day, blocks_json, current_index, started_at, updated_by, updated_at)
           VALUES (?, ?, ?, ?, ?, ?)
           ON CONFLICT(day) DO UPDATE SET blocks_json = excluded.blocks_json,
-            current_index = excluded.current_index, updated_by = excluded.updated_by,
-            updated_at = excluded.updated_at`,
-    args: [day, JSON.stringify(blocks.slice(0, 12)), current, existing.startedAt, teacherId, now()],
+            current_index = excluded.current_index, started_at = excluded.started_at,
+            updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+    args: [day, JSON.stringify(clean), current, startedAt, teacherId, now()],
   });
 }
 
@@ -92,7 +117,7 @@ export async function ensureEventsTable() {
        task_id INTEGER NOT NULL,
        kind TEXT NOT NULL,            -- 'review' | 'discussion' | 'study'
        created_at INTEGER NOT NULL,
-       source TEXT NOT NULL DEFAULT 'lesson' -- 'lesson' | 'manual'
+       source TEXT NOT NULL DEFAULT 'lesson' -- 'lesson' | 'manual' | 'off'
      )`
   );
   const info = await db().execute("PRAGMA table_info(unit_events)");
@@ -105,21 +130,25 @@ export async function ensureEventsTable() {
 export type EventSource = "lesson" | "manual";
 export async function recordUnitEvent(taskId: number, kind: BlockKind, source: EventSource = "lesson") {
   await ensureEventsTable();
+  // it happened (again) — her earlier "not done" mark no longer holds
+  await db().execute({ sql: "DELETE FROM unit_events WHERE task_id = ? AND kind = ? AND source = 'off'", args: [taskId, kind] });
   await db().execute({
     sql: "INSERT INTO unit_events (task_id, kind, created_at, source) VALUES (?, ?, ?, ?)",
     args: [taskId, kind, now(), source],
   });
 }
 
-// ---- the teacher's own word: "this was already done" ----
-// Lessons taught before the site had lesson plans are not recorded anywhere;
-// she ticks them in the journey. On = one manual event (unless the unit is
-// already done for that kind). Off = every recorded event of that kind goes
-// (she is the authority) — what the data itself says (a closed debate, 60 %
-// of the class finished) cannot be un-said and stays.
+// ---- the teacher's own word: "this was done" / "this was not" ----
+// She is the authority, in both directions. On = one manual event (unless
+// the unit already counts as done for that kind). Off = every recorded
+// event of that kind goes, and an explicit 'off' mark stays — so the unit
+// reads "not done" even when the site's own data says otherwise (a closed
+// debate, most of the class finished). Ticking it again, or running it in
+// a lesson, removes the mark.
 export async function setUnitDone(taskId: number, kind: BlockKind, on: boolean) {
   await ensureEventsTable();
   if (on) {
+    await db().execute({ sql: "DELETE FROM unit_events WHERE task_id = ? AND kind = ? AND source = 'off'", args: [taskId, kind] });
     const have = await db().execute({
       sql: "SELECT 1 FROM unit_events WHERE task_id = ? AND kind = ? LIMIT 1",
       args: [taskId, kind],
@@ -127,6 +156,10 @@ export async function setUnitDone(taskId: number, kind: BlockKind, on: boolean) 
     if (have.rows.length === 0) await recordUnitEvent(taskId, kind, "manual");
   } else {
     await db().execute({ sql: "DELETE FROM unit_events WHERE task_id = ? AND kind = ?", args: [taskId, kind] });
+    await db().execute({
+      sql: "INSERT INTO unit_events (task_id, kind, created_at, source) VALUES (?, ?, ?, 'off')",
+      args: [taskId, kind, now()],
+    });
   }
 }
 
@@ -138,49 +171,77 @@ export async function markDoneUpTo(taskId: number) {
   for (const u of units) {
     if (u.taskId == null) continue;
     for (const kind of kinds) {
-      const done = kind === "review" ? u.reviewed > 0 : kind === "discussion" ? u.discussed > 0 : u.studied > 0;
+      const done =
+        !u.off.includes(kind) &&
+        (kind === "review" ? u.reviewed > 0 : kind === "discussion" ? u.discussed > 0 : u.studied > 0);
       if (!done) await recordUnitEvent(u.taskId, kind, "manual");
     }
     if (u.taskId === taskId) break;
   }
 }
 
-async function markPassed(blocks: PlanBlock[], from: number, to: number) {
-  // blocks[from..to) were run — from = first not yet marked
-  for (let i = Math.max(0, from); i < Math.min(to, blocks.length); i++) {
-    await recordUnitEvent(blocks[i].taskId, blocks[i].kind);
-  }
+async function writePlan(day: string, blocks: PlanBlock[], current: number, startedAt: number | null) {
+  await db().execute({
+    sql: "UPDATE lesson_plans SET blocks_json = ?, current_index = ?, started_at = ?, updated_at = ? WHERE day = ?",
+    args: [JSON.stringify(blocks), current, startedAt, now(), day],
+  });
 }
+const withoutDone = (blocks: PlanBlock[]): PlanBlock[] =>
+  blocks.map((b) => ({ kind: b.kind, taskId: b.taskId, title: b.title, ...(b.id ? { id: b.id } : {}) }));
 
-export async function setCurrent(index: number, day = todayIsrael()) {
+// Moving through the lesson. The order is the teacher's: "next" goes to the
+// next block still waiting, "goto" jumps to any block (ahead or back, done
+// or not), "prev" steps back. Leaving a block forward or by a jump counts it
+// as run (once per lesson) — the journey's colours come from that.
+export type PlanMove = "start" | "next" | "prev" | "goto";
+export async function movePlan(move: PlanMove, index?: number, day = todayIsrael()) {
   await ensurePlanTable();
   const plan = await getPlan(day);
-  const i = Math.max(-1, Math.min(plan.blocks.length - 1, index));
-  if (i > plan.current) await markPassed(plan.blocks, plan.current, i);
-  await db().execute({
-    sql: `UPDATE lesson_plans SET current_index = ?, started_at = COALESCE(started_at, ?), updated_at = ? WHERE day = ?`,
-    args: [i, i >= 0 ? now() : null, now(), day],
-  });
+  if (plan.blocks.length === 0) return;
+  let blocks = plan.blocks.map((b) => ({ ...b }));
+  const leave = async () => {
+    const cur = plan.current >= 0 ? blocks[plan.current] : null;
+    if (!cur) return;
+    if (!cur.done) await recordUnitEvent(cur.taskId, cur.kind);
+    cur.done = true;
+  };
+  let target = plan.current;
+  if (move === "start" || plan.current < 0) {
+    blocks = withoutDone(blocks);
+    target = move === "goto" && Number.isInteger(index) ? Math.max(0, Math.min(blocks.length - 1, index as number)) : 0;
+  } else if (move === "next") {
+    await leave();
+    target = nextIndex({ blocks, current: plan.current });
+    if (target < 0) {
+      // nothing is waiting — the lesson is over
+      await writePlan(day, withoutDone(blocks), -1, null);
+      return;
+    }
+  } else if (move === "prev") {
+    target = Math.max(0, plan.current - 1);
+  } else {
+    target = Number.isInteger(index) ? Math.max(0, Math.min(blocks.length - 1, index as number)) : plan.current;
+    if (target === plan.current) return;
+    await leave();
+  }
+  await writePlan(day, blocks, target, plan.startedAt ?? now());
 }
 
-// "Stop and re-plan": back to the wheels without counting anything as done.
+// "Stop and re-plan": back to the wheels without counting anything more as done.
 export async function cancelPlan(day = todayIsrael()) {
   await ensurePlanTable();
-  await db().execute({
-    sql: "UPDATE lesson_plans SET current_index = -1, started_at = NULL, updated_at = ? WHERE day = ?",
-    args: [now(), day],
-  });
+  const plan = await getPlan(day);
+  await writePlan(day, withoutDone(plan.blocks), -1, null);
 }
 
-// Ending the lesson counts the current block (and any after it) as done.
+// Ending the lesson counts the block she is on as run. Blocks she never
+// reached stay as they are — skipping is hers to decide.
 export async function stopPlan(day = todayIsrael()) {
   await ensurePlanTable();
   const plan = await getPlan(day);
-  if (plan.current >= 0) await markPassed(plan.blocks, plan.current, plan.blocks.length);
-  await db().execute({
-    sql: "UPDATE lesson_plans SET current_index = -1, started_at = NULL, updated_at = ? WHERE day = ?",
-    args: [now(), day],
-  });
+  const cur = plan.current >= 0 ? plan.blocks[plan.current] : null;
+  if (cur && !cur.done) await recordUnitEvent(cur.taskId, cur.kind);
+  await writePlan(day, withoutDone(plan.blocks), -1, null);
 }
 
 // The journey: every unit in the library, in curriculum order, with what
@@ -198,6 +259,7 @@ export interface UnitOverview {
   discussionOpen: boolean;
   reviewed: number; // review decks shown / review blocks run
   studied: number; // study blocks run in a lesson
+  off: BlockKind[]; // kinds the teacher explicitly marked "not done" — her word wins
   question: string | null; // the unit's discussion question (for the popover)
 }
 
@@ -209,11 +271,14 @@ export async function unitsOverview(): Promise<UnitOverview[]> {
   for (const r of res.rows) taskByRef.set(String(r.content_ref), Number(r.id));
   await ensureEventsTable();
   const ev = await db().execute({
-    sql: "SELECT task_id, kind, COUNT(*) AS n FROM unit_events GROUP BY task_id, kind",
+    sql: "SELECT task_id, kind, COUNT(*) AS n FROM unit_events WHERE source != 'off' GROUP BY task_id, kind",
     args: [],
   });
   const events = new Map<string, number>();
   for (const r of ev.rows) events.set(`${r.task_id}:${r.kind}`, Number(r.n));
+  const offRows = await db().execute({ sql: "SELECT DISTINCT task_id, kind FROM unit_events WHERE source = 'off'", args: [] });
+  const offs = new Map<number, BlockKind[]>();
+  for (const r of offRows.rows) offs.set(Number(r.task_id), [...(offs.get(Number(r.task_id)) ?? []), String(r.kind) as BlockKind]);
   const refs = Object.keys(TASK_REGISTRY).sort((a, b) => taskOrderIndex(a) - taskOrderIndex(b));
   const out: UnitOverview[] = [];
   for (const ref of refs) {
@@ -251,6 +316,7 @@ export async function unitsOverview(): Promise<UnitOverview[]> {
       discussionOpen,
       reviewed,
       studied,
+      off: taskId != null ? offs.get(taskId) ?? [] : [],
       question: eff.discussion?.question ?? null,
     });
   }

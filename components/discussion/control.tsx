@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { DiscussionState } from "@/lib/discussion";
 import type { LessonPlan } from "@/lib/lesson-plan";
-import { KIND_WORD, teacherUrl } from "@/lib/lesson-flow";
+import { KIND_WORD, teacherUrl, nextIndex } from "@/lib/lesson-flow";
 
 // The teacher's control page for the debate — built for her phone or her
 // laptop screen, NEVER for the projected window. Everything here is one
@@ -93,7 +93,7 @@ export default function DiscussionControl({ discussionId }: { discussionId: numb
   const mm = (s: number) => `${s < 0 ? "-" : ""}${Math.floor(Math.abs(s) / 60)}:${String(Math.abs(s) % 60).padStart(2, "0")}`;
   const curBlock = plan && plan.current >= 0 ? plan.blocks[plan.current] : null;
   const isCurrentBlock = !!curBlock && curBlock.kind === "discussion" && curBlock.taskId === state.taskId;
-  const nextBlock = isCurrentBlock && plan ? (plan.blocks[plan.current + 1] ?? null) : null;
+  const nextBlock = isCurrentBlock && plan ? (plan.blocks[nextIndex(plan)] ?? null) : null;
   const endDebate = async () => {
     await act({ action: "close" });
     if (!isCurrentBlock) return;
