@@ -72,6 +72,9 @@ async function StudentView({
 
   return (
     <div className="grid gap-5 sm:grid-cols-2">
+      <p className="col-span-full -mb-1 text-center text-sm text-[color:var(--primary)]/60">
+        בהצלחה בעבודה! 🌱
+      </p>
       {tasks.map((t) => {
         const meta = STATUS_META[t.status];
         return (
