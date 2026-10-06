@@ -92,7 +92,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
         </footer>
         <InstallPrompt />
         {showDock && <LessonDock />}
-        {showDock && <ChatFab teacherName={teacherName} />}
+        {showDock && <ChatFab teacherName={teacherName} bottom="4.5rem" />}
       </body>
     </html>
   );
