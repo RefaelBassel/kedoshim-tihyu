@@ -4,6 +4,7 @@ import "./globals.css";
 import InstallPrompt from "@/components/pwa/install-prompt";
 import RememberLastPath from "@/components/pwa/remember-last-path";
 import LessonDock from "@/components/lesson-dock";
+import ChatFab from "@/components/chat-fab";
 
 const heebo = Heebo({
   variable: "--font-heebo",
@@ -51,12 +52,14 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   // anywhere on the site when the lesson needs steering) — never in student
   // mode, never for students. The dock hides itself on projector screens.
   let showDock = false;
+  let teacherName: string | null = null;
   try {
     const { auth } = await import("@/auth");
     const session = await auth();
     if (session?.user?.role === "teacher") {
       const { isStudentMode } = await import("@/lib/student-mode");
       showDock = !(await isStudentMode());
+      teacherName = session.user.fullName ?? null;
     }
   } catch {
     showDock = false;
@@ -89,6 +92,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
         </footer>
         <InstallPrompt />
         {showDock && <LessonDock />}
+        {showDock && <ChatFab teacherName={teacherName} />}
       </body>
     </html>
   );

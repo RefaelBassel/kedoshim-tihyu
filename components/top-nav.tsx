@@ -51,6 +51,7 @@ export default async function TopNav() {
   ];
   if (isTeacher) {
     links.push({ href: "/dashboard/lesson", label: "מהלך השיעור" });
+    links.push({ href: "/dashboard/chat", label: "הצ׳אט עם קלוד" });
     links.push({ href: "/dashboard", label: "דשבורד מורה" });
   }
 
