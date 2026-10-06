@@ -1,5 +1,6 @@
 "use client";
 
+import { formatHebDateTime } from "@/lib/hebrew";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type {
@@ -668,6 +669,7 @@ export default function TaskRunner({
   // Celebration modal after a successful submission (Reut): כל הכבוד + a way
   // back to the home page.
   const [celebrate, setCelebrate] = useState(false);
+  const [unsubmittedNotice, setUnsubmittedNotice] = useState(false);
   const doSubmit = async (action: "submit" | "unsubmit") => {
     setSubmitBusy(true);
     try {
@@ -680,6 +682,10 @@ export default function TaskRunner({
       if (data.ok) {
         setSubmitted(data.submitted);
         if (action === "submit" && data.submitted) setCelebrate(true);
+        if (action === "unsubmit" && !data.submitted) {
+          setUnsubmittedNotice(true);
+          window.setTimeout(() => setUnsubmittedNotice(false), 3500);
+        }
       } else if (data.error) alert(data.error);
     } finally {
       setSubmitBusy(false);
@@ -810,17 +816,30 @@ export default function TaskRunner({
       </div>
 
       {submitted && (
-        <div className="mb-6 rounded-xl border border-[color:var(--success)]/40 bg-[color:var(--success)]/10 px-4 py-3 text-sm text-[color:var(--success)]">
-          ✅ המשימה הוגשה! עכשיו רגע קטן לעצמך — פתחו את לשונית 🪞 הרפלקציה שבצד וספרו איך היה. {Date.now() / 1000 <= dueAt && "אפשר לבטל את ההגשה ולתקן עד המועד האחרון."}
-          {Date.now() / 1000 <= dueAt && (
-            <button
-              onClick={() => doSubmit("unsubmit")}
-              disabled={submitBusy}
-              className="ms-3 rounded-lg border border-[color:var(--success)]/50 px-3 py-1 text-xs font-semibold hover:bg-[color:var(--success)]/10"
-            >
-              ביטול הגשה ותיקון
-            </button>
+        <div className="mb-6 rounded-2xl border-2 border-[color:var(--success)]/40 bg-[color:var(--success)]/10 px-4 py-3 text-sm text-[color:var(--success)]">
+          <p>✅ המשימה הוגשה! עכשיו רגע קטן לעצמך — פתחו את לשונית 🪞 הרפלקציה שבצד וספרו איך היה.</p>
+          {/* un-submit is a first-class action until the due date: a real
+              button with working / done states, not a note in the corner */}
+          {Date.now() / 1000 <= dueAt ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => doSubmit("unsubmit")}
+                disabled={submitBusy}
+                className={`rounded-full border-2 border-[color:var(--success)] bg-[color:var(--card)] px-4 py-1.5 text-xs font-extrabold text-[color:var(--success)] shadow-sm transition hover:bg-[color:var(--success)] hover:text-white active:scale-95 disabled:opacity-50 ${submitBusy ? "animate-pulse" : ""}`}
+              >
+                {submitBusy ? "מבטלים את ההגשה…" : "✏️ לבטל הגשה ולתקן"}
+              </button>
+              <span className="text-xs text-[color:var(--success)]/80">אפשר לתקן ולהגיש שוב עד {formatHebDateTime(dueAt)}. המורה תראה את הגרסה האחרונה.</span>
+            </div>
+          ) : (
+            <p className="mt-1 text-xs text-[color:var(--success)]/80">המועד האחרון עבר, ולכן אי אפשר לבטל את ההגשה — לתיקון פנו למורה.</p>
           )}
+        </div>
+      )}
+      {unsubmittedNotice && (
+        <div className="note-pop pointer-events-none fixed inset-x-0 bottom-24 z-[96] flex justify-center px-4">
+          <p className="rounded-full bg-[color:var(--ink,#2e2438)] px-4 py-2 text-xs font-bold text-white shadow-xl">ההגשה בוטלה — אפשר לתקן ולהגיש שוב ✓</p>
         </div>
       )}
       {overdue && (

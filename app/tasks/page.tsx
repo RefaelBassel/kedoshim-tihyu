@@ -117,7 +117,15 @@ async function StudentView({
               </span>
             </div>
             <span className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-[color:var(--accent)]">
-              <span>{t.status === "not_started" ? "מתחילים" : "ממשיכים"}</span>
+              <span>
+                {t.status === "not_started"
+                  ? "מתחילים"
+                  : t.status === "submitted" && Date.now() / 1000 <= t.dueAt
+                    ? "הוגשה · אפשר לבטל הגשה ולתקן עד המועד"
+                    : t.status === "submitted" || t.status === "graded"
+                      ? "לצפייה"
+                      : "ממשיכים"}
+              </span>
               <span aria-hidden className="transition group-hover:-translate-x-0.5">←</span>
             </span>
           </Link>
