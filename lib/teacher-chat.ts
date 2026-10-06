@@ -382,6 +382,11 @@ export const TOOLS: Anthropic.Tool[] = [
     input_schema: { type: "object", properties: { to: { type: "string", enum: ["class", "student"] }, userId: { type: "integer" }, text: { type: "string" } }, required: ["to", "text"], additionalProperties: false },
   },
   {
+    name: "undo_change",
+    description: "Revert a change made earlier in this chat (its actionId was returned when it ran). Without actionId: the most recent revertible change. Use when the teacher asks to cancel / undo / put back.",
+    input_schema: { type: "object", properties: { actionId: { type: "integer" } }, additionalProperties: false },
+  },
+  {
     name: "request_code_change",
     description: "For anything that needs a change to the site itself (a new button, screen, behaviour, design, a feature that no other tool covers): write a precise request for the developer pipeline. title: short Hebrew title. body: full Hebrew spec — where in the site, what exactly should change, why, what students vs. the teacher should see. The pipeline implements it, builds it and publishes it to the site by itself; the teacher sees the status in the chat.",
     input_schema: { type: "object", properties: { title: { type: "string" }, body: { type: "string" } }, required: ["title", "body"], additionalProperties: false },
@@ -836,7 +841,7 @@ const SYSTEM = `את/ה קלוד — העוזר/ת של המורה באתר "${S
 
 איך זה עובד:
 - כלי קריאה (list_units, get_unit, list_students, list_tasks, class_progress, get_lesson_plan, list_code_requests) פועלים מיד — השתמש/י בהם בחופשיות כדי לדעת את המצב האמיתי לפני שאת/ה מציע/ה משהו.
-- כלי שינוי (edit_unit_texts, edit_review, edit_discussion, reset_unit_edits, publish_unit, set_due_date, cancel_task, republish_task, mark_unit, mark_done_up_to, account_action, send_message, request_code_change) לא מבצעים מיד: הם יוצרים כרטיס "זה מה שאשנה" שהמורה מאשרת בלחיצה ✓. אחרי שקראת לכלי כזה, אמר/י לה בקצרה שהכרטיס מחכה לאישור שלה. אל תבטיח/י שמשהו "בוצע" לפני שהיא אישרה.
+- כלי שינוי (edit_unit_texts, edit_review, edit_discussion, reset_unit_edits, publish_unit, set_due_date, cancel_task, republish_task, mark_unit, mark_done_up_to, account_action, send_message, request_code_change) מבצעים מיד, בלי שום אישור — זה צ׳אט רגיל: היא כותבת, את/ה עושה, ומספר/ת במשפט-שניים מה בדיוק שונה (ציטוט קצר של הנוסח החדש כשזה טקסט). אל תשאל/י "האם לבצע?" ואל תציג/י אפשרויות לבחירה — רק אם הבקשה באמת דו-משמעית, שאל/י שאלה אחת קצרה. כל שינוי ניתן לביטול עם undo_change כשהיא מבקשת לבטל / להחזיר.
 - לפני עריכת טקסט ביחידה — תמיד get_unit קודם, כדי לערוך את הנוסח הנוכחי ולהשתמש במפתחות (key) הנכונים של השאלות והבלוקים.
 - כשהבקשה דורשת שינוי באתר עצמו (כפתור, מסך, התנהגות, עיצוב, דבר שאין לו כלי) — השתמש/י ב-request_code_change עם כותרת קצרה ומפרט מלא בעברית: איפה באתר, מה בדיוק, למה, מה התלמידים יראו ומה המורה. הבקשה נבנית ועולה לאתר אוטומטית (בדרך כלל תוך 10–30 דקות); היא תראה את הסטטוס בכרטיס. אם לא ברור מה בדיוק היא רוצה — שאל/י שאלה אחת ממוקדת לפני שאת/ה שולח/ת.
 - שאלות על "איך עושים X באתר" — ענה/י ישירות מהידע שלך על האתר (למטה).
@@ -904,7 +909,20 @@ export async function chatTurn(userId: number, teacherName: string | null, text:
       const input = (u.input ?? {}) as Record<string, unknown>;
       let out: unknown;
       try {
-        if (READ_TOOLS.has(u.name)) {
+        if (u.name === "undo_change") {
+          const which = Number(input.actionId) || 0;
+          let targetId = which;
+          if (!targetId) {
+            const last = await db().execute({ sql: "SELECT id FROM teacher_chat_actions WHERE user_id = ? AND status = 'applied' AND undo_json IS NOT NULL ORDER BY id DESC LIMIT 1", args: [userId] });
+            targetId = Number(last.rows[0]?.id ?? 0);
+          }
+          if (!targetId) out = { error: "nothing to undo" };
+          else {
+            const undone = await undoAction(targetId, userId);
+            newActions.push(undone);
+            out = { undone: true, actionId: targetId, summary: undone.summary };
+          }
+        } else if (READ_TOOLS.has(u.name)) {
           out = await runReadTool(u.name, input, userId);
         } else {
           const p = await buildProposal(u.name, input);
@@ -915,9 +933,13 @@ export async function chatTurn(userId: number, teacherName: string | null, text:
               args: [userId, thread, u.name, JSON.stringify(input), p.summary, JSON.stringify(p.preview), now()],
             });
             const id = Number(ins.lastInsertRowid);
-            const row = await db().execute({ sql: "SELECT * FROM teacher_chat_actions WHERE id = ?", args: [id] });
-            newActions.push(rowToAction(row.rows[0] as Record<string, unknown>));
-            out = { proposed: true, actionId: id, summary: p.summary, note: "waiting for the teacher's ✓ in the chat card; do not claim it was done" };
+            // a plain chat: the change runs now; she can ask to undo it
+            const done = await applyAction(id, userId);
+            newActions.push(done);
+            out =
+              done.status === "applied"
+                ? { done: true, actionId: id, summary: p.summary, result: done.result, undoable: done.undoable, changes: (p.preview as { changes?: unknown }).changes }
+                : { error: (done.result as { error?: string } | null)?.error ?? "failed", actionId: id };
           }
         }
       } catch (e) {

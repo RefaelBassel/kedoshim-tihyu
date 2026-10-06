@@ -147,7 +147,7 @@ export default function TeacherChat({ teacherName, compact = false }: { teacherN
       <div className={`flex flex-wrap items-center justify-between gap-2 text-xs text-[color:var(--primary)]/60 ${compact ? "mb-2" : "mb-3"}`}>
         {!compact && (
           <p>
-            כותבים כאן מה לשנות, לעדכן, לבדוק או לשפר — ביחידות, במשימות, בתלמידים, או באתר עצמו. שינוי בתוכן מופיע קודם ככרטיס לאישור; שינוי באתר נבנה ועולה לבד.
+            כותבים כאן מה לשנות, לעדכן, לבדוק או לשפר — ביחידות, במשימות, בתלמידים, או באתר עצמו — וזה קורה. שינוי באתר עצמו נבנה ועולה לבד תוך דקות.
           </p>
         )}
         <span className="flex items-center gap-2">
@@ -215,7 +215,7 @@ export default function TeacherChat({ teacherName, compact = false }: { teacherN
         {busy && (
           <div className="flex justify-end">
             <div className="rounded-2xl bg-[color:var(--background)] px-4 py-2.5 text-sm text-[color:var(--primary)]/60">
-              <span className="animate-pulse">קלוד בודק ועובד על זה…</span>
+              <span className="animate-pulse">קלוד עובד על זה…</span>
             </div>
           </div>
         )}
@@ -253,52 +253,29 @@ export default function TeacherChat({ teacherName, compact = false }: { teacherN
 }
 
 function ActionCard({ a, code, onAct }: { a: ActionRow; code: CodeRequestRow | null; onAct: (id: number, what: "apply" | "dismiss" | "undo") => void }) {
-  const preview = a.preview as { unit?: string; changes?: { what: string; before: string | null; after: string | null }[] } | null;
-  const pending = a.status === "pending";
-  const working = a.status === "applying" || a.status === "undoing";
-  const tone = a.status === "applied" ? "var(--success)" : a.status === "failed" ? "var(--danger)" : pending ? "var(--accent)" : "var(--border)";
+  // a thin receipt under the reply — what ran, and a way back. No buttons to
+  // approve: the chat is a chat, the change already happened.
+  const working = a.status === "undoing";
   const isCode = a.tool === "request_code_change";
   const st = code ? STATUS_HE[code.status] ?? { label: code.status, tone: "var(--primary)" } : null;
+  const tone = a.status === "applied" ? "var(--success)" : a.status === "failed" ? "var(--danger)" : "var(--primary)";
   return (
-    <div className="my-2 me-0 ms-auto max-w-[92%] rounded-2xl border-2 bg-[color:var(--card)] p-3 shadow-sm" style={{ borderColor: tone }}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-extrabold text-[color:var(--primary)]">
-          {isCode ? "🛠️ " : "✏️ "}
-          {a.summary}
-        </p>
-        <span className="text-[11px] font-bold" style={{ color: tone }}>
-          {a.status === "applied" ? (isCode ? "נשלח לבנייה ✓" : "בוצע ✓") : a.status === "dismissed" ? "בוטל" : a.status === "undone" ? "שוחזר ↶" : a.status === "failed" ? "נכשל" : working ? "רגע…" : "ממתין לאישור שלך"}
-        </span>
-      </div>
-      {preview?.changes && (
-        <ul className="mt-2 space-y-2">
-          {preview.changes.map((c, i) => (
-            <li key={i} className="rounded-xl bg-[color:var(--background)] px-3 py-2 text-xs leading-6">
-              <p className="font-bold text-[color:var(--primary)]/70">{c.what}</p>
-              {c.before != null && c.before !== "" && (
-                <p className="whitespace-pre-wrap text-[color:var(--foreground)]/55 line-through decoration-[color:var(--danger)]/50">{c.before}</p>
-              )}
-              {c.after != null && <p className="whitespace-pre-wrap font-semibold text-[color:var(--foreground)]">{c.after}</p>}
-            </li>
-          ))}
-        </ul>
-      )}
+    <div className="my-1 me-0 ms-auto flex max-w-[92%] flex-wrap items-center gap-x-2 gap-y-1 rounded-xl px-3 py-1.5 text-[12px]" style={{ background: "color-mix(in srgb, var(--background) 70%, transparent)" }}>
+      <span className="font-bold" style={{ color: tone }}>
+        {a.status === "applied" ? (isCode ? "🛠️ נשלח לבנייה" : "✓") : a.status === "undone" ? "↶ בוטל" : a.status === "failed" ? "✗ לא הצליח" : working ? "…" : "·"}
+      </span>
+      <span className="text-[color:var(--foreground)]/80">{a.summary}</span>
       {a.status === "failed" && a.result != null && typeof a.result === "object" && "error" in (a.result as object) ? (
-        <p className="mt-2 text-xs text-[color:var(--danger)]">{String((a.result as { error: string }).error)}</p>
+        <span className="text-[color:var(--danger)]">{String((a.result as { error: string }).error)}</span>
       ) : null}
       {code && st && (
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-          <span className="rounded-full px-2.5 py-0.5 font-bold text-white" style={{ background: st.tone }}>
+        <>
+          <span className="rounded-full px-2 py-0.5 text-[11px] font-bold text-white" style={{ background: st.tone }}>
             {st.label}
           </span>
           {code.issueUrl && (
             <a href={code.issueUrl} target="_blank" rel="noopener noreferrer" className="underline text-[color:var(--primary)]/70">
-              הבקשה ב-GitHub ↗
-            </a>
-          )}
-          {code.prUrl && code.status !== "merged" && (
-            <a href={code.prUrl} target="_blank" rel="noopener noreferrer" className="underline text-[color:var(--primary)]/70">
-              השינוי ↗
+              מעקב ↗
             </a>
           )}
           {code.previewUrl && code.status === "preview" && (
@@ -306,27 +283,14 @@ function ActionCard({ a, code, onAct }: { a: ActionRow; code: CodeRequestRow | n
               תצוגה מקדימה ↗
             </a>
           )}
-          {code.note && <span className="text-[color:var(--warning)]">{code.note}</span>}
-        </div>
+        </>
       )}
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        {pending && (
-          <>
-            <button type="button" onClick={() => onAct(a.id, "apply")} className="rounded-full px-4 py-1.5 text-xs font-extrabold text-white shadow transition hover:scale-[1.03] active:scale-95" style={{ background: "var(--success)" }}>
-              {isCode ? "✓ לשלוח לבנייה" : "✓ לבצע"}
-            </button>
-            <button type="button" onClick={() => onAct(a.id, "dismiss")} className="rounded-full border border-[color:var(--border)] px-3 py-1.5 text-xs font-bold text-[color:var(--primary)]/70 hover:border-[color:var(--danger)] hover:text-[color:var(--danger)]">
-              ✗ לא
-            </button>
-          </>
-        )}
-        {working && <span className="animate-pulse text-xs font-bold text-[color:var(--primary)]/60">{a.status === "applying" ? "מבצעים…" : "משחזרים…"}</span>}
-        {a.status === "applied" && a.undoable && (
-          <button type="button" onClick={() => onAct(a.id, "undo")} className="rounded-full border border-[color:var(--border)] px-3 py-1 text-[11px] font-bold text-[color:var(--primary)]/70 hover:border-[color:var(--accent)]">
-            ↶ לבטל את השינוי
-          </button>
-        )}
-      </div>
+      {a.status === "applied" && a.undoable && (
+        <button type="button" onClick={() => onAct(a.id, "undo")} className="text-[11px] font-bold text-[color:var(--primary)]/60 underline hover:text-[color:var(--accent)]">
+          לבטל
+        </button>
+      )}
+      {working && <span className="animate-pulse text-[color:var(--primary)]/60">משחזרים…</span>}
     </div>
   );
 }
