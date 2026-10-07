@@ -82,7 +82,7 @@ export async function POST(req: Request) {
   const client = new Anthropic({ apiKey });
   const msg = await client.messages.create({
     model: CLAUDE_MODEL,
-    max_tokens: 1200,
+    max_tokens: 4000,
     // The passage goes first as its own cached block: when the teacher grades
     // a whole class in one sitting, every call after the first reads it from
     // the prompt cache instead of paying for it again.
