@@ -44,7 +44,9 @@ ${includeQuestion ? "שאלת הדיון: שאלה אחת לדיבייט כית�
   try {
     msg = await client.messages.create({
     model: CLAUDE_MODEL,
-    max_tokens: 900,
+    // thinking is always on in Opus 5.5 and counts against this budget;
+    // 900 left no room for the tool call itself
+    max_tokens: 4000,
     system,
     tools: [
       {
@@ -92,7 +94,18 @@ ${includeQuestion ? `\nשאלת הדיון הנוכחית: ${current.question ||
     return NextResponse.json({ error: `ההצעה לא הופקה — נסי שוב. (${why})` }, { status: 502 });
   }
   const tool = msg.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-  const input = (tool?.input ?? {}) as Record<string, unknown>;
+  let input = (tool?.input ?? {}) as Record<string, unknown>;
+  if (!tool) {
+    // no tool call: try a JSON object in the text, then report what happened
+    const text = msg.content.filter((b): b is Anthropic.TextBlock => b.type === "text").map((b) => b.text).join(" ");
+    const m = text.match(/\{[\s\S]*\}/);
+    try {
+      if (m) input = JSON.parse(m[0]) as Record<string, unknown>;
+    } catch {
+      /* fall through to the error below */
+    }
+    console.error("content-assist: no tool call", { contentRef, stop: msg.stop_reason, out: msg.usage?.output_tokens, text: text.slice(0, 300) });
+  }
   const points = Array.isArray(input.points)
     ? input.points.map((p) => String(p).trim()).filter(Boolean).slice(0, 6)
     : [];
