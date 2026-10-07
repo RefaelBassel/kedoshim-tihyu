@@ -29,3 +29,6 @@ teacher role).
 - `migrations/` — additive SQL, applied by `scripts/migrate.mjs`.
 
 See `CLAUDE.md` for the working rules, palette, roles and curriculum.
+
+Code requests from the teacher chat are built automatically by Claude Code via
+GitHub Actions and merged once the build passes.
