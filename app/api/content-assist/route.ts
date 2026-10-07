@@ -39,8 +39,10 @@ export async function POST(req: Request) {
 ${includeQuestion ? "שאלת הדיון: שאלה אחת לדיבייט כיתתי, עם שני צדדים אפשריים, שנשענת על פרט ספציפי בפסוקים כך שמי שלא למד לא יכול באמת לדון בה; קשורה כשזה טבעי לשאלת השנה ״איך בונים חברה צודקת״. יחד איתה — הערה למורה בשורה אחת: על מה בפסוקים כל צד נשען.\n" : ""}
 כללים: פשט בלבד, בלי פרשנים ובלי ידע חיצוני; עברית ברורה לכיתה ט; לשמור על מה שהמורה לא ביקשה לשנות; לבצע בדיוק את ההוראה שלה. להחזיר אך ורק דרך הכלי propose_deck.`;
 
-  const client = new Anthropic({ apiKey });
-  const msg = await client.messages.create({
+  const client = new Anthropic({ apiKey, timeout: 100_000, maxRetries: 2 });
+  let msg: Anthropic.Message;
+  try {
+    msg = await client.messages.create({
     model: CLAUDE_MODEL,
     max_tokens: 900,
     system,
@@ -58,10 +60,14 @@ ${includeQuestion ? "שאלת הדיון: שאלה אחת לדיבייט כית�
             note: { type: "string", description: "משפט אחד למורה: מה שונה ולמה" },
           },
           required: ["points", "skill", "note"],
+          additionalProperties: false,
         },
+        strict: true,
       },
     ],
-    tool_choice: { type: "tool", name: "propose_deck" },
+    // Opus 5.5 rejects a forced tool choice; "auto" + strict schema + the
+    // instruction in the system prompt is the supported way
+    tool_choice: { type: "auto", disable_parallel_tool_use: true },
     messages: [
       {
         role: "user",
@@ -78,6 +84,13 @@ ${includeQuestion ? `\nשאלת הדיון הנוכחית: ${current.question ||
       },
     ],
   });
+  } catch (e) {
+    // a clear Hebrew line instead of a bare failure
+    const status = e instanceof Anthropic.APIError ? e.status : undefined;
+    console.error("content-assist failed", { contentRef, status, message: e instanceof Error ? e.message : String(e) });
+    const why = status === 429 ? "עומס זמני על השירות — כדאי לחכות דקה." : status === 401 || status === 403 ? "מפתח ה-API לא תקין." : status && status >= 500 ? "השירות לא זמין כרגע." : `שגיאה ${status ?? ""} מהשירות.`;
+    return NextResponse.json({ error: `ההצעה לא הופקה — נסי שוב. (${why})` }, { status: 502 });
+  }
   const tool = msg.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
   const input = (tool?.input ?? {}) as Record<string, unknown>;
   const points = Array.isArray(input.points)
