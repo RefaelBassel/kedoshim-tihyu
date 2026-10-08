@@ -1,3 +1,4 @@
+import { typingStatsFor, EMPTY_TYPING, typedShare } from "@/lib/typing-guard";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireTeacher } from "@/lib/api-auth";
@@ -88,6 +89,8 @@ export async function GET(
   const t = now();
   // focus picture for the current lesson: the last 90 minutes
   const focus = await focusStatsFor(task.id, t - 90 * 60);
+  // how the text came to be (whole task, not windowed): pace flags, blocked pastes
+  const typing = await typingStatsFor(task.id);
   const students = roster.rows.map((r) => {
     const uid = Number(r.id);
     const rawStage = r.stage != null ? Number(r.stage) : 0;
@@ -106,7 +109,8 @@ export async function GET(
         : opened
           ? "idle"
           : "absent";
-    const f = focus.get(uid) ?? { exits: 0, awayMs: 0, pasteBlocked: 0 };
+    const f = focus.get(uid) ?? { exits: 0, awayMs: 0, pasteBlocked: 0, copyBlocked: 0 };
+    const ty = typing.get(uid) ?? EMPTY_TYPING;
     return {
       id: uid,
       name:
@@ -120,7 +124,12 @@ export async function GET(
       status,
       focusExits: f.exits,
       focusAwaySec: Math.round(f.awayMs / 1000),
-      pasteBlocked: f.pasteBlocked,
+      pasteBlocked: f.pasteBlocked + ty.blockedInserts,
+      copyBlocked: f.copyBlocked,
+      typingFlag: ty.flagged || ty.rejectedSaves > 0,
+      rejectedSaves: ty.rejectedSaves,
+      peakCpm: ty.peakCpm,
+      typedShare: typedShare(ty),
     };
   });
 
