@@ -7,6 +7,7 @@ import TaskAdminPanel, { UnassignButton } from "@/components/dashboard/task-admi
 import PrintLinks from "@/components/task/print-links";
 import { getTask, taskRoster, unassignedStudents, STATUS_META, isTaskCancelled } from "@/lib/tasks";
 import { positionLabel } from "@/content/tasks/registry";
+import { hasOpening } from "@/content/openings/registry";
 import { formatHebDateTime, formatWorkTime } from "@/lib/hebrew";
 import {
   updateDueDate,
@@ -84,6 +85,16 @@ export default async function DashboardTaskPage({
         >
           🖥️ לוח כיתה להקרנה
         </Link>
+        {hasOpening(task.content_ref) && (
+          <Link
+            href={`/dashboard/opening/${taskId}`}
+            target="_blank"
+            className="rounded-full px-4 py-1.5 text-sm font-bold text-[#1c150b] shadow transition hover:scale-[1.02]"
+            style={{ background: "#d9b46c" }}
+          >
+            ▶ פתיחה
+          </Link>
+        )}
         <PrintLinks contentRef={task.content_ref} />
       </p>
 

@@ -115,3 +115,11 @@ a projected board never contains teacher input; the control is a separate page.
 - The review deck editor can ask Claude for a revision (`/api/content-assist`, forced tool use);
   Claude only proposes — nothing is saved until the teacher presses save.
 - The unit's discussion question is the single source of truth (deck, hub, debate board).
+
+## Opening decks (issue #5)
+- `/dashboard/opening/<taskId | ref>` — a short cinematic opening the teacher projects at
+  the start of a unit (teacher only, chrome-free). Generic player `components/opening-deck.tsx`;
+  content per unit in `content/openings/` — a unit listed in its registry gets the "▶ פתיחה"
+  button on its lesson card and dashboard task page. Slide kinds: reveal / question /
+  challenge (timer) / map (bar filling part by part) / launch (→ class board, or back to the
+  lesson page while the unit is unpublished).

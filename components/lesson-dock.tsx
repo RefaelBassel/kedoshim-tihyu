@@ -18,6 +18,7 @@ export default function LessonDock() {
     pathname.startsWith("/dashboard/lesson") ||
     /\/(board|review)(\/|$)/.test(pathname) ||
     pathname.startsWith("/dashboard/class-board") ||
+    pathname.startsWith("/dashboard/opening") ||
     pathname === "/login" ||
     pathname === "/onboarding" ||
     pathname === "/pending";
