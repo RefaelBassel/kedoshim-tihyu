@@ -6,6 +6,7 @@ import type { LessonPlan, PlanBlock, BlockKind, UnitOverview } from "@/lib/lesso
 import Wheel3D, { type WheelItem } from "./wheel-3d";
 import TicketsStrip from "./tickets-strip";
 import { nextIndex, projectorUrl } from "@/lib/lesson-flow";
+import { hasOpening } from "@/content/openings/registry";
 
 // the one tool each block needs, in plain words
 export function toolsFor(kind: BlockKind, taskId: number): { href: string; label: string; newTab?: boolean; primary?: boolean }[] {
@@ -1149,6 +1150,7 @@ export function UnitPopover({
           {publishPanel}
           {unit.question && <p className="mt-2 rounded-lg bg-[color:var(--background)] px-3 py-2 text-xs leading-5 text-[color:var(--foreground)]/80">💬 {unit.question}</p>}
           <div className="mt-3 flex flex-wrap gap-1.5 text-[11px] font-bold">
+            {hasOpening(unit.ref) && <OpeningLink to={String(unit.taskId)} />}
             <a href={`/dashboard/review/${unit.taskId}`} target="_blank" rel="noopener noreferrer" className="rounded-full px-3 py-1 text-white" style={{ background: KIND.review.color }}>🔁 מצגת החזרה ↗</a>
             <a href={`/dashboard/discussion/${unit.taskId}/control`} className="rounded-full px-3 py-1 text-white" style={{ background: KIND.discussion.color }}>🎫 כרטיסי כניסה ועריכת שאלת הדיון</a>
             <a href={`/dashboard/discussion/${unit.taskId}/board`} target="_blank" rel="noopener noreferrer" className="rounded-full border px-3 py-1" style={{ borderColor: KIND.discussion.color, color: KIND.discussion.color }}>🖥️ להקרין את לוח הדיון ↗</a>
@@ -1161,11 +1163,22 @@ export function UnitPopover({
           {publishPanel ?? <p className="mt-2 text-xs text-[color:var(--warning)]">היחידה עוד לא הוקצתה לכיתה.</p>}
           {unit.question && <p className="mt-2 rounded-lg bg-[color:var(--background)] px-3 py-2 text-xs leading-5 text-[color:var(--foreground)]/80">💬 {unit.question}</p>}
           <div className="mt-3 flex flex-wrap gap-1.5 text-[11px] font-bold">
+            {hasOpening(unit.ref) && <OpeningLink to={unit.ref} />}
             <a href={`/dashboard/content/${unit.ref}`} className="rounded-full border border-[color:var(--border)] px-3 py-1 text-[color:var(--primary)]">✏️ עריכת התוכן</a>
           </div>
         </>
       )}
     </div>
+  );
+}
+
+// the unit's opening deck (only units that have one) — by task id, or by ref
+// while the unit is not published yet
+function OpeningLink({ to }: { to: string }) {
+  return (
+    <a href={`/dashboard/opening/${to}`} target="_blank" rel="noopener noreferrer" className="rounded-full px-3 py-1 text-[#1c150b]" style={{ background: "#d9b46c" }}>
+      ▶ פתיחה ↗
+    </a>
   );
 }
 

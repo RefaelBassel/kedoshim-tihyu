@@ -140,6 +140,19 @@ body {
 .deck-pan { background-size: 180% 180%; animation: deck-pan 18s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .deck-fade, .deck-float, .deck-pop, .deck-bounce, .deck-pan { animation: none; } }
 
+/* Opening deck (components/opening-deck.tsx) — the review deck's motion,
+   slower and more cinematic: lines rise out of a blur, a soft gold glow
+   breathes behind them, the chapter bar fills from the right. */
+@keyframes opening-rise { from { opacity: 0; filter: blur(14px); transform: translateY(18px); letter-spacing: 0.08em; } to { opacity: 1; filter: blur(0); transform: translateY(0); letter-spacing: normal; } }
+.opening-rise { animation: opening-rise 1.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes opening-glow { 0%, 100% { opacity: 0.55; transform: scale(1); } 50% { opacity: 0.9; transform: scale(1.08); } }
+.opening-glow { animation: opening-glow 9s ease-in-out infinite; }
+@keyframes opening-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.opening-fill { transform-origin: right; animation: opening-fill 0.9s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes opening-in { from { opacity: 0; } to { opacity: 1; } }
+.opening-in { animation: opening-in 0.9s ease-out both; }
+@media (prefers-reduced-motion: reduce) { .opening-rise, .opening-glow, .opening-fill, .opening-in { animation: none; } }
+
 /* The lesson wheels (components/dashboard/lesson-planner.tsx): three slot
    drums the teacher spins to compose the lesson. Native scroll-snap gives
    momentum and a click-stop; the mask fades the drum's edges; items scale
