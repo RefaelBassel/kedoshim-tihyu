@@ -4,6 +4,7 @@ import { vayikra16b, vayikra16bMainPassage } from "./vayikra-16-2";
 import { vayikra16c, vayikra16cMainPassage } from "./vayikra-16-3";
 import { vayikra16d, vayikra16dMainPassage } from "./vayikra-16-4";
 import { vayikra16e, vayikra16eMainPassage } from "./vayikra-16-5";
+import { mikdashLive, mikdashLiveMainPassage } from "./mikdash-live";
 import { nedava1, nedava1MainPassage, nedava2, nedava2MainPassage, nedava3, nedava3MainPassage } from "./nedava";
 import { miluim1, miluim1MainPassage, miluim2, miluim2MainPassage, miluim3, miluim3MainPassage } from "./miluim";
 import { tahara1, tahara1MainPassage, tahara2, tahara2MainPassage, tahara3, tahara3MainPassage } from "./tahara";
@@ -31,6 +32,7 @@ export const TASK_REGISTRY: Record<string, RegisteredTask> = {
   "vayikra-16-3": { content: vayikra16c, mainPassage: vayikra16cMainPassage },
   "vayikra-16-4": { content: vayikra16d, mainPassage: vayikra16dMainPassage },
   "vayikra-16-5": { content: vayikra16e, mainPassage: vayikra16eMainPassage },
+  "mikdash-live": { content: mikdashLive, mainPassage: mikdashLiveMainPassage },
   "nedava-1": { content: nedava1, mainPassage: nedava1MainPassage },
   "nedava-2": { content: nedava2, mainPassage: nedava2MainPassage },
   "nedava-3": { content: nedava3, mainPassage: nedava3MainPassage },

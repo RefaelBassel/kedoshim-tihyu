@@ -5,6 +5,7 @@ import { CLAUDE_MODEL } from "./claude";
 import { TASK_REGISTRY } from "@/content/tasks/registry";
 import { effectiveContent } from "./content-overrides";
 import { VAYIKRA_16 } from "@/content/tasks/vayikra-16-verses";
+import { verseByNum, etnachtaSplit } from "./etnachta";
 import type { QuestionBlock, TaskContent } from "@/content/tasks/types";
 
 // Teacher-only exams. The teacher asks Claude for a draft built from what
@@ -47,7 +48,6 @@ export interface ExamRow {
 }
 
 const now = () => Math.floor(Date.now() / 1000);
-const ETNACHTA = "֑";
 const CHAPTER_REFS = ["vayikra-16-1", "vayikra-16-2", "vayikra-16-3", "vayikra-16-4", "vayikra-16-5"];
 
 let ready = false;
@@ -109,19 +109,7 @@ export function totalPoints(doc: ExamDoc): number {
   return doc.sections.reduce((a, s) => a + s.questions.reduce((b, q) => b + (Number(q.points) || 0), 0), 0);
 }
 
-// ---------- the verses: exact text, and where the etnachta falls ----------
-export function verseByNum(num: string): string | null {
-  const clean = num.replace(/[״׳]/g, "");
-  return VAYIKRA_16.find((v) => v.num.replace(/[״׳]/g, "") === clean)?.text ?? null;
-}
-
-// the word that carries the etnachta, and the two halves of the verse
-export function etnachtaSplit(verse: string): { word: string; first: string; second: string } | null {
-  const words = verse.split(/\s+/);
-  const i = words.findIndex((w) => w.includes(ETNACHTA));
-  if (i < 0) return null;
-  return { word: words[i], first: words.slice(0, i + 1).join(" "), second: words.slice(i + 1).join(" ") };
-}
+export { verseByNum, etnachtaSplit } from "./etnachta";
 
 // ---------- what was taught: the source for Claude ----------
 async function chapterSource(): Promise<string> {

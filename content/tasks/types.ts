@@ -160,6 +160,10 @@ export interface TaskContent {
   review?: ReviewDeck;
   // Part B: the worksheet.
   sections: TaskSection[];
+  // Extra guidance for Claude's grade proposal (e.g. a rubric for a project
+  // task that is not a pshat-decoding task). Teacher-facing, never shown
+  // to students.
+  gradingNotes?: string;
 }
 
 export interface DiscussionQuestion {
