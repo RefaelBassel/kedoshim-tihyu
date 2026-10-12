@@ -11,6 +11,7 @@ import {
   removeUser,
   unblockUser,
 } from "@/lib/approval";
+import { mergeAccounts, planMerge } from "@/lib/account-merge";
 
 // Roster actions — real teachers only (the session role comes from the
 // lib/roles.ts whitelist, never from user input).
@@ -64,6 +65,23 @@ export async function makeStudentAction(userId: number) {
   const ok = await makeStudent(userId);
   done();
   return { ok };
+}
+
+// Merging two accounts of the same student: first the summary for the
+// confirmation, then the merge itself (lib/account-merge.ts).
+export async function mergePreviewAction(keepId: number, mergedId: number) {
+  if (!(await requireTeacher())) return { ok: false as const, error: "למורות בלבד." };
+  const plan = await planMerge(keepId, mergedId);
+  if ("error" in plan) return { ok: false as const, error: plan.error };
+  return { ok: true as const, lines: plan.lines };
+}
+
+export async function mergeAction(keepId: number, mergedId: number) {
+  const session = await auth();
+  if (session?.user?.role !== "teacher") return { ok: false, error: "למורות בלבד." };
+  const r = await mergeAccounts(keepId, mergedId, { by: Number(session.user.id) || null });
+  done();
+  return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
 
 export async function preApproveAction(emails: string) {

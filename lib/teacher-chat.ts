@@ -27,6 +27,7 @@ import {
   updateTaskDueDate,
 } from "./tasks";
 import { approveUser, blockUser, listAccounts, makeStudent, makeTeacher, preApproveEmail, unblockUser } from "./approval";
+import { mergeAccounts, planMerge } from "./account-merge";
 import { sendGroupMessage, sendMessage } from "./messages";
 import { formatHebDateTime, israelLocalToUnix } from "./hebrew";
 import { applyExamPatch, getExam, listExams, questionNumbers, saveExam, totalPoints, EXAM_STATUS_LABEL, type ExamDoc, type ExamPatch } from "./exams";
@@ -458,12 +459,13 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "account_action",
-    description: "Approve a pending account, block / unblock, mark an account as a teacher or back as a student, or pre-approve an email that has not signed in yet.",
+    description: "Approve a pending account, block / unblock, mark an account as a teacher or back as a student, pre-approve an email that has not signed in yet, or merge two accounts of the same student (merge: userId = the account merged away, keepUserId = the account that stays; all its work moves to keepUserId — a task worked in both keeps the more advanced version, the other is archived; the merged account leaves every list and signing in with its email lands in the kept account). Merge cannot be undone — check list_students first and use it only when the teacher clearly named which account stays.",
     input_schema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["approve", "block", "unblock", "make_teacher", "make_student", "pre_approve_email"] },
+        action: { type: "string", enum: ["approve", "block", "unblock", "make_teacher", "make_student", "pre_approve_email", "merge"] },
         userId: { type: "integer" },
+        keepUserId: { type: "integer", description: "merge only: the account that stays" },
         email: { type: "string" },
       },
       required: ["action"],
@@ -781,6 +783,14 @@ async function buildProposal(name: string, input: Record<string, unknown>): Prom
         if (!email.includes("@")) return { error: "email required" };
         return { summary: `לאשר מראש את ${email}`, preview: { changes: [{ what: "חשבון", before: "עוד לא נכנס", after: `${email} ייכנס בלי המתנה לאישור` }] } };
       }
+      if (action === "merge") {
+        const plan = await planMerge(Number(input.keepUserId), Number(input.userId));
+        if ("error" in plan) return { error: plan.error };
+        return {
+          summary: `איחוד ${plan.merged.email} לתוך ${plan.keep.fullName ?? plan.keep.email} (${plan.keep.email})`,
+          preview: { changes: plan.lines.map((l) => ({ what: "איחוד", before: null, after: l })) },
+        };
+      }
       const acc = (await listAccounts()).find((a) => a.id === Number(input.userId));
       if (!acc) return { error: "account not found" };
       const label: Record<string, string> = { approve: "לאשר כניסה", block: "לחסום", unblock: "לבטל חסימה", make_teacher: "לסמן כמורה", make_student: "להחזיר לתלמיד/ה" };
@@ -955,6 +965,11 @@ export async function applyAction(actionId: number, userId: number): Promise<Act
         else if (action === "make_teacher") { await makeTeacher(id); undo = { make_student: id }; }
         else if (action === "make_student") { await makeStudent(id); undo = { make_teacher: id }; }
         else if (action === "pre_approve_email") await preApproveEmail(str(input.email, 200).toLowerCase());
+        else if (action === "merge") {
+          const r = await mergeAccounts(Number(input.keepUserId), id, { by: userId });
+          if (!r.ok) throw new Error(r.error);
+          result = { merged: r.plan.lines };
+        }
         break;
       }
       case "send_message": {
@@ -1215,6 +1230,7 @@ const SYSTEM = `אתה קלוד — העוזר של המורה באתר "${SITE.
 איך זה עובד:
 - כלי קריאה (list_units, get_unit, list_students, list_tasks, class_progress, get_lesson_plan, list_code_requests, list_exams, get_exam, get_class_slide) פועלים מיד — השתמש בהם בחופשיות כדי לדעת את המצב האמיתי לפני שאתה מציע משהו.
 - כלי שינוי (edit_unit_texts, edit_review, edit_discussion, reset_unit_edits, publish_unit, set_due_date, cancel_task, republish_task, mark_unit, mark_done_up_to, account_action, send_message, edit_exam, edit_exam_prep, edit_class_slide, request_code_change) מבצעים מיד, בלי שום אישור — זה צ׳אט רגיל: היא כותבת, אתה עושה, ומספר במשפט-שניים מה בדיוק שונה (ציטוט קצר של הנוסח החדש כשזה טקסט). אל תשאל "האם לבצע?" ואל תציג אפשרויות לבחירה — רק אם הבקשה באמת דו-משמעית, שאל שאלה אחת קצרה. כל שינוי ניתן לביטול עם undo_change כשהיא מבקשת לבטל / להחזיר.
+- איחוד חשבונות כפולים של תלמיד/ה (account_action עם action=merge): קודם list_students, ורק כשברור איזה חשבון נשאר (keepUserId) ואיזה מתמזג (userId). זו הפעולה היחידה שלא ניתנת לביטול — אמור/אמרי זאת, וספר/י בקצרה מה עבר (הכלי מחזיר סיכום).
 - מבחנים: המבחן גלוי למורה בלבד — לעולם לא לתלמידים. לפני edit_exam או edit_exam_prep — תמיד get_exam קודם (מזהי השאלות, הנוסח והניקוד הנוכחיים). כשמשנים ניקוד — אמור/אמרי מה הסכום החדש. דף ההכנה מוסתר עד שהיא מבקשת לפרסם (publish=true); שאלות המבחן עצמן לא נכנסות לדף ההכנה.
 - שקופית כללי השיעור (/dashboard/slide, למורה בלבד, מוקרנת בתחילת שיעור): כותרת, שלושה בלוקים — task (📝 המשימה), rules (📏 הכללים), done (🏠 סיימת?) — ושורת סיום. כשהיא מבקשת לעדכן אותה לשיעור הבא — get_class_slide ואז edit_class_slide (lines מחליף את כל השורות של הבלוק).
 - לפני עריכת טקסט ביחידה — תמיד get_unit קודם, כדי לערוך את הנוסח הנוכחי ולהשתמש במפתחות (key) הנכונים של השאלות והבלוקים.
