@@ -14,7 +14,7 @@ export default function ChatFab({ teacherName, bottom = "1rem", hideOn = [] }: {
   const pathname = usePathname();
   const hidden =
     !pathname ||
-    /\/(board|review)(\/|$)/.test(pathname) ||
+    /\/(board|review|print)(\/|$)/.test(pathname) ||
     pathname.startsWith("/dashboard/class-board") ||
     pathname.startsWith("/dashboard/opening") ||
     pathname === "/dashboard/chat" ||

@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import PageShell from "@/components/page-shell";
 import ExamEditor from "@/components/dashboard/exam-editor";
 import { getExam } from "@/lib/exams";
-import { getPrepForExam } from "@/lib/exam-prep";
+import { CHAPTER_UNIT_REFS, discussionQuestions, getPrepForExam, prepClassProgress } from "@/lib/exam-prep";
 import ExamPrepEditor from "@/components/dashboard/exam-prep-editor";
 
 export default async function ExamEditorPage({ params }: { params: Promise<{ examId: string }> }) {
@@ -15,10 +15,12 @@ export default async function ExamEditorPage({ params }: { params: Promise<{ exa
   const exam = await getExam(Number(examId));
   if (!exam) notFound();
   const prep = await getPrepForExam(exam.id);
+  const progress = prep ? await prepClassProgress(prep) : null;
+  const discussions = await discussionQuestions(CHAPTER_UNIT_REFS);
   return (
-    <PageShell title={exam.title} subtitle="עריכת המבחן — כל שינוי נשמר בלחיצה; התלמידים לא רואים כלום">
+    <PageShell title={exam.title} subtitle="המבחן המלא ומחוון לצידו — כל שינוי נשמר מעצמו; התלמידים לא רואים את המבחן">
       <ExamEditor exam={exam} />
-      <ExamPrepEditor examId={exam.id} initial={prep} />
+      <ExamPrepEditor examId={exam.id} initial={prep} progress={progress} discussions={discussions} />
     </PageShell>
   );
 }

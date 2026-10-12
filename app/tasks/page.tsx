@@ -10,6 +10,9 @@ import {
 import { sweepOverdue } from "@/lib/notify";
 import { isStudentMode } from "@/lib/student-mode";
 import { formatHebDate, formatHebDateTime, formatWorkTime } from "@/lib/hebrew";
+import { prepCardsFor } from "@/lib/exam-prep";
+import { countdownText, daysUntil } from "@/lib/prep-shared";
+import { formatExamDate } from "@/lib/exam-export-shared";
 
 export default async function TasksPage() {
   const session = await auth();
@@ -50,10 +53,18 @@ async function StudentView({
   allPublished?: boolean;
 }) {
   let tasks: Awaited<ReturnType<typeof tasksForStudent>> = [];
+  let preps: Awaited<ReturnType<typeof prepCardsFor>> = [];
   try {
     tasks = await tasksForStudent(userId, allPublished);
+    preps = await prepCardsFor(userId);
   } catch {
     // guest/no DB
+  }
+
+  const prepCards = preps.map((p) => <PrepCard key={`prep-${p.id}`} card={p} />);
+
+  if (tasks.length === 0 && prepCards.length > 0) {
+    return <div className="grid gap-5 sm:grid-cols-2">{prepCards}</div>;
   }
 
   if (tasks.length === 0) {
@@ -75,6 +86,7 @@ async function StudentView({
       <p className="col-span-full -mb-1 text-center text-sm text-[color:var(--primary)]/60">
         בהצלחה בעבודה! 🌱
       </p>
+      {prepCards}
       {tasks.map((t) => {
         const meta = STATUS_META[t.status];
         return (
@@ -135,6 +147,39 @@ async function StudentView({
         );
       })}
     </div>
+  );
+}
+
+// A published exam preparation: a card of its own, wide, with the countdown
+// to the exam and the student's progress.
+function PrepCard({ card }: { card: Awaited<ReturnType<typeof prepCardsFor>>[number] }) {
+  const countdown = countdownText(daysUntil(card.examDate));
+  const pct = card.total ? Math.round((100 * card.done) / card.total) : 0;
+  return (
+    <Link
+      href={`/exams#prep-${card.id}`}
+      className="group col-span-full block rounded-2xl border-2 border-[color:var(--accent)] p-5 shadow-md transition hover:shadow-lg"
+      style={{ background: "linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, var(--card)), var(--card))" }}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="rounded-full bg-[color:var(--accent)] px-3 py-1 text-[11px] font-extrabold text-white">📚 הכנה למבחן</span>
+        {countdown && <span className="font-display text-lg font-extrabold text-[color:var(--accent)]">⏳ {countdown}</span>}
+      </div>
+      <h2 className="mt-2 font-display text-xl font-extrabold text-[color:var(--primary)]">{card.title}</h2>
+      {card.examDate && <p className="mt-0.5 text-xs text-[color:var(--primary)]/60">📅 המבחן ב-{formatExamDate(card.examDate)}</p>}
+      <div className="mt-3 flex items-center gap-2">
+        <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-[color:var(--border)]/60">
+          <div className="h-full rounded-full" style={{ width: `${pct}%`, background: card.ready ? "var(--success)" : "linear-gradient(90deg, var(--accent), var(--primary))" }} />
+        </div>
+        <span className="text-xs font-bold text-[color:var(--primary)]/70">
+          {card.ready ? "🏅 הושלם" : `השלמת ${card.done} מתוך ${card.total}`}
+        </span>
+      </div>
+      <span className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-[color:var(--accent)]">
+        {card.done === 0 ? "מתחילים להתכונן" : card.ready ? "לחזור על החומר" : "ממשיכים להתכונן"}
+        <span aria-hidden className="transition group-hover:-translate-x-0.5">←</span>
+      </span>
+    </Link>
   );
 }
 

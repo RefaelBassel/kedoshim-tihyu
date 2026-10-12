@@ -3,7 +3,8 @@ import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import PageShell from "@/components/page-shell";
 import ExamList from "@/components/dashboard/exam-list";
-import { listExams, totalPoints } from "@/lib/exams";
+import { EXAM_STATUS_LABEL, formatExamDate, listExams, totalPoints } from "@/lib/exams";
+import { getPrepForExam } from "@/lib/exam-prep";
 import { formatHebDateTime } from "@/lib/hebrew";
 
 // Teacher-only: the exams she composed with Claude. Students are kept out
@@ -14,14 +15,16 @@ export default async function ExamsDashboardPage() {
   if (!user) redirect("/login");
   if (user.role !== "teacher") redirect("/");
   const exams = await listExams();
+  const preps = new Map((await Promise.all(exams.map((e) => getPrepForExam(e.id)))).filter((p) => p != null).map((p) => [p.examId, p]));
 
   return (
-    <PageShell title="מבחנים" subtitle="חיבור עם קלוד, עריכה, והדפסה — לעיני המורה בלבד">
+    <PageShell title="מבחנים" subtitle="מבחנים, מחוונים ודפי הכנה — לעיני המורה בלבד">
       <div className="mx-auto max-w-3xl space-y-6">
-        <ExamList hasExams={exams.length > 0} />
         {exams.length > 0 && (
           <ul className="space-y-3">
-            {exams.map((e) => (
+            {exams.map((e) => {
+              const prep = preps.get(e.id);
+              return (
               <li key={e.id}>
                 <Link
                   href={`/dashboard/exams/${e.id}`}
@@ -36,18 +39,32 @@ export default async function ExamsDashboardPage() {
                           : "bg-[color:var(--warning)]/15 text-[color:var(--warning)]"
                       }`}
                     >
-                      {e.status === "ready" ? "מוכן להדפסה" : "טיוטה"}
+                      🔒 {EXAM_STATUS_LABEL[e.status]}
                     </span>
                   </div>
                   <p className="mt-1 text-xs text-[color:var(--primary)]/60">
-                    {e.doc.sections.length} חלקים · {e.doc.sections.reduce((a, s) => a + s.questions.length, 0)} שאלות ·{" "}
-                    {totalPoints(e.doc)} נק׳ · עודכן {formatHebDateTime(e.updatedAt)}
+                    {e.doc.examDate && <b className="text-[color:var(--accent)]">📅 {formatExamDate(e.doc.examDate)} · </b>}
+                    {e.doc.sections.reduce((a, s) => a + s.questions.length, 0)} שאלות · {totalPoints(e.doc)} נק׳ · {e.doc.durationMin} דק׳ · עודכן{" "}
+                    {formatHebDateTime(e.updatedAt)}
+                  </p>
+                  <p className="mt-1 text-xs font-bold">
+                    {prep ? (
+                      prep.status === "published" ? (
+                        <span className="text-[color:var(--success)]">📚 דף ההכנה מפורסם לתלמידים</span>
+                      ) : (
+                        <span className="text-[color:var(--warning)]">📚 דף ההכנה — טיוטה, מוסתר מהתלמידים</span>
+                      )
+                    ) : (
+                      <span className="text-[color:var(--primary)]/50">📚 עוד אין דף הכנה</span>
+                    )}
                   </p>
                 </Link>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
+        <ExamList hasExams={exams.length > 0} />
         <p className="text-center text-xs text-[color:var(--primary)]/50">
           <Link href="/dashboard" className="hover:text-[color:var(--accent)]">
             → חזרה לדשבורד

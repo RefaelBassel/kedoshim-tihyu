@@ -95,6 +95,14 @@ export default async function DashboardTaskPage({
             ▶ פתיחה
           </Link>
         )}
+        {task.content_ref === "vayikra-16-5" && (
+          <Link
+            href="/dashboard/exams"
+            className="rounded-full border-2 border-[color:var(--primary)] px-4 py-1.5 text-sm font-bold text-[color:var(--primary)] transition hover:bg-[color:var(--primary)]/10"
+          >
+            🧪 מבחן ודף הכנה — ויקרא ט״ז
+          </Link>
+        )}
         <PrintLinks contentRef={task.content_ref} />
       </p>
 

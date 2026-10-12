@@ -4,7 +4,7 @@ import React from "react";
 import { Document as PdfDocument, Font, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
 import type { ExamDoc, ExamRow } from "./exams";
 import { totalPoints } from "./exams";
-import { linesFor, partHeading, type ExamVersion } from "./exam-export-shared";
+import { formatExamDate, linesForQuestion, partHeading, questionNumbers, type ExamVersion } from "./exam-export-shared";
 
 // -------------------------------------------------------------- PDF ------
 let fontsReady = false;
@@ -50,6 +50,7 @@ const S = StyleSheet.create({
 });
 
 function ExamPdf({ doc, version }: { doc: ExamDoc; version: ExamVersion }) {
+  const nums = questionNumbers(doc);
   return (
     <PdfDocument title={doc.title} author="קדושים תהיו">
       <Page size="A4" style={S.page}>
@@ -57,7 +58,7 @@ function ExamPdf({ doc, version }: { doc: ExamDoc; version: ExamVersion }) {
         <Text style={S.title}>{doc.title}</Text>
         {doc.subtitle ? <Text style={S.subtitle}>{doc.subtitle}</Text> : null}
         <Text style={S.meta}>
-          {`שם: ______________________   כיתה: ________   תאריך: ____________   משך: ${doc.durationMin} דק׳   סה״כ: ${totalPoints(doc)} נק׳`}
+          {`שם: ______________________   כיתה: ________   תאריך: ${formatExamDate(doc.examDate) || "____________"}   משך: ${doc.durationMin} דק׳   סה״כ: ${totalPoints(doc)} נק׳`}
         </Text>
         {doc.instructions ? (
           <View style={S.box}>
@@ -72,14 +73,14 @@ function ExamPdf({ doc, version }: { doc: ExamDoc; version: ExamVersion }) {
             <View key={s.key} wrap>
               <Text style={S.h2}>{partHeading(si, s.title, pts)}</Text>
               {s.intro ? <Text style={S.intro}>{s.intro}</Text> : null}
-              {s.questions.map((q, qi) => (
+              {s.questions.map((q) => (
                 <View key={q.id} wrap={false}>
                   {q.verse ? <Text style={S.verse}>{`(${q.verseNum}) ${q.verse}`}</Text> : null}
-                  <Text style={S.q}>{`${qi + 1}. ${q.text} (${q.points} נק׳)`}</Text>
+                  <Text style={S.q}>{`${nums.get(q.id)}. ${q.text} (${q.points} נק׳)`}</Text>
                   {version === "teacher" ? (
                     <Text style={S.answer}>{`✔ ${q.answer}`}</Text>
                   ) : (
-                    Array.from({ length: linesFor(s.key) }).map((_, i) => <View key={i} style={S.line} />)
+                    Array.from({ length: linesForQuestion(s.key, q) }).map((_, i) => <View key={i} style={S.line} />)
                   )}
                 </View>
               ))}

@@ -28,6 +28,8 @@ import {
 import { approveUser, blockUser, listAccounts, makeStudent, makeTeacher, preApproveEmail, unblockUser } from "./approval";
 import { sendGroupMessage, sendMessage } from "./messages";
 import { formatHebDateTime, israelLocalToUnix } from "./hebrew";
+import { applyExamPatch, getExam, listExams, questionNumbers, saveExam, totalPoints, EXAM_STATUS_LABEL, type ExamDoc, type ExamPatch } from "./exams";
+import { applyPrepPatch, getPrepForExam, prepClassProgress, savePrep, type PrepDoc, type PrepPatch } from "./exam-prep";
 
 // ריעות ↔ קלוד — the teacher's direct chat with Claude inside the site.
 // Whatever she wants changed, she writes here. Claude has TOOLS that are the
@@ -257,7 +259,24 @@ async function unitSnapshot(ref: string) {
 // --------------------------------------------------------------- tools ----
 // READ tools run at once. WRITE tools only PROPOSE: the server records an
 // action and tells Claude "proposed — waiting for the teacher's ✓".
-const READ_TOOLS = new Set(["list_units", "get_unit", "list_students", "class_progress", "list_tasks", "get_lesson_plan", "list_code_requests"]);
+const READ_TOOLS = new Set(["list_units", "get_unit", "list_students", "class_progress", "list_tasks", "get_lesson_plan", "list_code_requests", "list_exams", "get_exam"]);
+
+const PREP_ITEM_SCHEMA = {
+  type: "object",
+  properties: {
+    op: { type: "string", enum: ["update", "add", "delete", "move"] },
+    itemId: { type: "string", description: "update / delete / move: the practice item's id (from get_exam)" },
+    position: { type: "integer", description: "add / move: 1-based place in the practice list" },
+    kind: { type: "string", enum: ["choice", "multi", "verse", "etnachta", "short", "open"], description: "choice = one right option; multi = all right options; verse = 'in which verse' (correct = verse numbers in Hebrew letters); etnachta = the student clicks the etnachta word of verseNum; short = a word or two (correct = accepted answers); open = self-check against the explanation" },
+    text: { type: "string" },
+    options: { type: "array", items: { type: "string" } },
+    correct: { type: "array", items: { type: "string" }, description: "choice/multi: the right options, word for word" },
+    explain: { type: "string", description: "shown after a right answer" },
+    verseNum: { type: "string" },
+  },
+  required: ["op"],
+  additionalProperties: false,
+} as const;
 
 export const TOOLS: Anthropic.Tool[] = [
   {
@@ -295,7 +314,74 @@ export const TOOLS: Anthropic.Tool[] = [
     description: "Requests for changes to the site's code that were sent to the developer pipeline, with their status.",
     input_schema: { type: "object", properties: {}, additionalProperties: false },
   },
+  {
+    name: "list_exams",
+    description: "The teacher's exams (teacher-only, never shown to students): examId, title, date, status, total points, question count, and the state of its student preparation page (draft / published) with how many students started or finished it.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_exam",
+    description: "One exam in full — every part (sectionKey) and question (questionId, number, text, points, answer key, writing lines) — and its preparation page (map, terms, practice items with itemId/kind/options/correct/explain, argument). Always call before edit_exam or edit_exam_prep.",
+    input_schema: { type: "object", properties: { examId: { type: "integer" } }, required: ["examId"], additionalProperties: false },
+  },
   // ---- write (proposals) ----
+  {
+    name: "edit_exam",
+    description: "Edit a teacher-only exam: head fields (title, subtitle, instructions — the line at the top, durationMin, examDate YYYY-MM-DD), part titles/intros, and question operations in order — update (text / answer key / points / lines), add (to a part, at a 1-based position), delete, move (to a position, optionally into another part). status 'ready' marks the answer key as checked and approved, 'draft' returns it to draft; students never see the exam either way.",
+    input_schema: {
+      type: "object",
+      properties: {
+        examId: { type: "integer" },
+        title: { type: "string" },
+        subtitle: { type: "string" },
+        instructions: { type: "string" },
+        durationMin: { type: "integer" },
+        examDate: { type: "string", description: "YYYY-MM-DD" },
+        status: { type: "string", enum: ["draft", "ready"] },
+        sections: { type: "object", description: "sectionKey -> {title?, intro?}", additionalProperties: { type: "object", properties: { title: { type: "string" }, intro: { type: "string" } }, additionalProperties: false } },
+        ops: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              op: { type: "string", enum: ["update", "add", "delete", "move"] },
+              questionId: { type: "string" },
+              sectionKey: { type: "string", description: "add: the part; move: the target part (optional)" },
+              position: { type: "integer", description: "add / move: 1-based place within the part" },
+              text: { type: "string" },
+              answer: { type: "string" },
+              points: { type: "integer" },
+              lines: { type: "integer", description: "answer lines in the student print" },
+            },
+            required: ["op"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["examId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "edit_exam_prep",
+    description: "Edit the student preparation page of an exam: title, intro, the chapter map (full replacement list), the terms list (full replacement), the argument intro and which units' discussion questions are offered (argumentRefs), and practice item operations (update / add / delete / move). publish=true shows the page to students (on /tasks with a countdown, and /exams); publish=false hides it again. Never put exam questions on the prep page.",
+    input_schema: {
+      type: "object",
+      properties: {
+        examId: { type: "integer" },
+        title: { type: "string" },
+        intro: { type: "string" },
+        map: { type: "array", items: { type: "object", properties: { title: { type: "string" }, verses: { type: "string" }, summary: { type: "string" } }, required: ["title", "verses", "summary"], additionalProperties: false } },
+        terms: { type: "array", items: { type: "object", properties: { term: { type: "string" }, verses: { type: "string" }, note: { type: "string" } }, required: ["term", "verses", "note"], additionalProperties: false } },
+        argumentIntro: { type: "string" },
+        argumentRefs: { type: "array", items: { type: "string" } },
+        practiceOps: { type: "array", items: PREP_ITEM_SCHEMA },
+        publish: { type: "boolean" },
+      },
+      required: ["examId"],
+      additionalProperties: false,
+    },
+  },
   {
     name: "edit_unit_texts",
     description: "Change texts of a unit in place: title/subtitle/readingIntro, question prompts (by question key), hide or unhide questions, add a teacher question to a section, section titles/minutes, intro/source/case texts (by block key). Only pass what changes. Each call is ONE proposal the teacher confirms.",
@@ -395,6 +481,75 @@ export const TOOLS: Anthropic.Tool[] = [
 
 const KIND_HE: Record<string, string> = { review: "חזרה", discussion: "דיון", study: "לימוד" };
 
+// ------------------------------------------------------------- exams ----
+function examPatchOf(input: Record<string, unknown>): ExamPatch {
+  const patch: ExamPatch = {};
+  if (typeof input.title === "string") patch.title = str(input.title, 200);
+  if (typeof input.subtitle === "string") patch.subtitle = str(input.subtitle, 300);
+  if (typeof input.instructions === "string") patch.instructions = str(input.instructions, 3000);
+  if (input.durationMin != null) patch.durationMin = Number(input.durationMin);
+  if (typeof input.examDate === "string") patch.examDate = str(input.examDate, 10);
+  if (input.sections && typeof input.sections === "object") patch.sections = input.sections as ExamPatch["sections"];
+  if (Array.isArray(input.ops)) patch.ops = input.ops as ExamPatch["ops"];
+  return patch;
+}
+
+type Change = { what: string; before: string | null; after: string | null };
+
+// the before/after card of an exam edit, question by question
+function diffExam(before: ExamDoc, after: ExamDoc): Change[] {
+  const out: Change[] = [];
+  const head: [keyof ExamDoc, string][] = [["title", "כותרת"], ["subtitle", "כותרת משנה"], ["instructions", "הנחיה בראש המבחן"], ["durationMin", "משך (דקות)"], ["examDate", "תאריך"]];
+  for (const [k, label] of head) if (String(before[k] ?? "") !== String(after[k] ?? "")) out.push({ what: label, before: before[k] != null ? String(before[k]) : null, after: after[k] != null ? String(after[k]) : null });
+  for (const s of after.sections) {
+    const b = before.sections.find((x) => x.key === s.key);
+    if (b && b.title !== s.title) out.push({ what: "כותרת חלק", before: b.title, after: s.title });
+    if (b && b.intro !== s.intro) out.push({ what: `הוראה ל${s.title}`, before: b.intro, after: s.intro });
+  }
+  const oldQ = new Map(before.sections.flatMap((s) => s.questions.map((q) => [q.id, { q, s: s.key }] as const)));
+  const newQ = new Map(after.sections.flatMap((s) => s.questions.map((q) => [q.id, { q, s: s.key }] as const)));
+  const oldN = questionNumbers(before);
+  const newN = questionNumbers(after);
+  for (const [id, { q, s }] of newQ) {
+    const o = oldQ.get(id);
+    const n = newN.get(id);
+    if (!o) {
+      out.push({ what: `שאלה חדשה (${n}) · ${q.points} נק׳`, before: null, after: q.text });
+      continue;
+    }
+    if (o.q.text !== q.text) out.push({ what: `שאלה ${n} — נוסח`, before: o.q.text, after: q.text });
+    if (o.q.answer !== q.answer) out.push({ what: `שאלה ${n} — מחוון`, before: o.q.answer, after: q.answer });
+    if (o.q.points !== q.points) out.push({ what: `שאלה ${n} — ניקוד`, before: String(o.q.points), after: String(q.points) });
+    if ((o.q.lines ?? null) !== (q.lines ?? null)) out.push({ what: `שאלה ${n} — שורות לכתיבה`, before: o.q.lines != null ? String(o.q.lines) : "ברירת מחדל", after: q.lines != null ? String(q.lines) : "ברירת מחדל" });
+    if (oldN.get(id) !== n || o.s !== s) out.push({ what: "סדר", before: `שאלה ${oldN.get(id)}`, after: `שאלה ${n}` });
+  }
+  for (const [id, { q }] of oldQ) if (!newQ.has(id)) out.push({ what: `מחיקת שאלה ${oldN.get(id)}`, before: q.text, after: null });
+  if (totalPoints(before) !== totalPoints(after)) out.push({ what: "סה״כ נקודות", before: String(totalPoints(before)), after: String(totalPoints(after)) });
+  return out;
+}
+
+function diffPrep(before: PrepDoc, after: PrepDoc): Change[] {
+  const out: Change[] = [];
+  if (before.title !== after.title) out.push({ what: "כותרת", before: before.title, after: after.title });
+  if (before.intro !== after.intro) out.push({ what: "פתיח", before: before.intro, after: after.intro });
+  const mapText = (d: PrepDoc) => d.map.map((m) => `${m.title} (${m.verses}): ${m.summary}`).join("\n");
+  if (mapText(before) !== mapText(after)) out.push({ what: "מפת הפרק", before: mapText(before), after: mapText(after) });
+  const termsText = (d: PrepDoc) => d.terms.map((t) => `${t.term} (${t.verses})${t.note ? ` — ${t.note}` : ""}`).join("\n");
+  if (termsText(before) !== termsText(after)) out.push({ what: "ביטויים", before: termsText(before), after: termsText(after) });
+  if (before.argument.intro !== after.argument.intro) out.push({ what: "הוראה לתרגול הטיעון", before: before.argument.intro, after: after.argument.intro });
+  if (before.argument.refs.join() !== after.argument.refs.join()) out.push({ what: "שאלות הדיון לטיעון", before: before.argument.refs.join(", "), after: after.argument.refs.join(", ") });
+  const oldI = new Map(before.practice.map((q, i) => [q.id, { q, i }] as const));
+  after.practice.forEach((q, i) => {
+    const o = oldI.get(q.id);
+    const show = (x: typeof q) => `${x.text}${x.options.length ? `\nאפשרויות: ${x.options.join(" / ")}` : ""}${x.correct.length ? `\nנכון: ${x.correct.join(" / ")}` : ""}${x.verseNum ? `\nפסוק ${x.verseNum}` : ""}${x.explain ? `\nהסבר: ${x.explain}` : ""}`;
+    if (!o) out.push({ what: `שאלת תרגול חדשה (${i + 1})`, before: null, after: show(q) });
+    else if (JSON.stringify(o.q) !== JSON.stringify(q)) out.push({ what: `שאלת תרגול ${i + 1}`, before: show(o.q), after: show(q) });
+    else if (o.i !== i) out.push({ what: "סדר התרגול", before: `שאלה ${o.i + 1}`, after: `שאלה ${i + 1}` });
+  });
+  for (const q of before.practice) if (!after.practice.some((x) => x.id === q.id)) out.push({ what: "מחיקת שאלת תרגול", before: q.text, after: null });
+  return out;
+}
+
 // ------------------------------------------------------- read executors ----
 async function runReadTool(name: string, input: Record<string, unknown>, userId: number): Promise<unknown> {
   switch (name) {
@@ -429,6 +584,48 @@ async function runReadTool(name: string, input: Record<string, unknown>, userId:
       return await getPlan();
     case "list_code_requests":
       return (await listCodeRequests(userId)).map((c) => ({ id: c.id, title: c.title, status: c.status, issueUrl: c.issueUrl, prUrl: c.prUrl, previewUrl: c.previewUrl, note: c.note }));
+    case "list_exams": {
+      const exams = await listExams();
+      return Promise.all(
+        exams.map(async (e) => {
+          const prep = await getPrepForExam(e.id);
+          const progress = prep ? await prepClassProgress(prep) : null;
+          return {
+            examId: e.id,
+            title: e.title,
+            examDate: e.doc.examDate ?? null,
+            status: EXAM_STATUS_LABEL[e.status],
+            totalPoints: totalPoints(e.doc),
+            questions: e.doc.sections.reduce((a, s) => a + s.questions.length, 0),
+            page: `/dashboard/exams/${e.id}`,
+            prep: prep ? { status: prep.status === "published" ? "published to students" : "draft, hidden from students", started: progress?.started ?? 0, completed: progress?.completed ?? 0, students: progress?.students.length ?? 0 } : null,
+          };
+        })
+      );
+    }
+    case "get_exam": {
+      const exam = await getExam(Number(input.examId));
+      if (!exam) return { error: "exam not found" };
+      const nums = questionNumbers(exam.doc);
+      const prep = await getPrepForExam(exam.id);
+      return {
+        examId: exam.id,
+        status: EXAM_STATUS_LABEL[exam.status],
+        title: exam.doc.title,
+        subtitle: exam.doc.subtitle,
+        instructions: exam.doc.instructions,
+        durationMin: exam.doc.durationMin,
+        examDate: exam.doc.examDate ?? null,
+        totalPoints: totalPoints(exam.doc),
+        sections: exam.doc.sections.map((s) => ({
+          sectionKey: s.key,
+          title: s.title,
+          intro: s.intro,
+          questions: s.questions.map((q) => ({ questionId: q.id, number: nums.get(q.id), text: q.text, points: q.points, answer: q.answer, lines: q.lines ?? null, verseNum: q.verseNum ?? null })),
+        })),
+        prep: prep ? { status: prep.status, doc: prep.doc } : null,
+      };
+    }
     default:
       return { error: `unknown tool ${name}` };
   }
@@ -543,6 +740,40 @@ async function buildProposal(name: string, input: Record<string, unknown>): Prom
         return { summary: `הודעה אישית ל${acc.fullName ?? acc.email}`, preview: { changes: [{ what: `אל: ${acc.fullName ?? acc.email}`, before: null, after: text }] } };
       }
       return { summary: "הודעה לכל הכיתה", preview: { changes: [{ what: "אל: כל הכיתה (צ׳אט קבוצתי)", before: null, after: text }] } };
+    }
+    case "edit_exam": {
+      const exam = await getExam(Number(input.examId));
+      if (!exam) return { error: "exam not found" };
+      let next: ExamDoc;
+      try {
+        next = applyExamPatch(exam.doc, examPatchOf(input));
+      } catch (e) {
+        return { error: e instanceof Error ? e.message : String(e) };
+      }
+      const changes = diffExam(exam.doc, next);
+      if (input.status === "ready" || input.status === "draft") {
+        if (input.status !== exam.status) changes.push({ what: "סטטוס", before: EXAM_STATUS_LABEL[exam.status], after: EXAM_STATUS_LABEL[input.status] });
+      }
+      if (changes.length === 0) return { error: "nothing to change" };
+      return { summary: `עריכת המבחן ״${exam.doc.title}״ (${changes.length} שינויים)`, preview: { unit: exam.doc.title, changes } };
+    }
+    case "edit_exam_prep": {
+      const exam = await getExam(Number(input.examId));
+      if (!exam) return { error: "exam not found" };
+      const prep = await getPrepForExam(exam.id);
+      if (!prep) return { error: "this exam has no preparation page yet — the teacher creates one on the exam page" };
+      let next: PrepDoc;
+      try {
+        next = applyPrepPatch(prep.doc, input as PrepPatch);
+      } catch (e) {
+        return { error: e instanceof Error ? e.message : String(e) };
+      }
+      const changes = diffPrep(prep.doc, next);
+      if (typeof input.publish === "boolean" && (input.publish ? "published" : "draft") !== prep.status) {
+        changes.push({ what: "פרסום לתלמידים", before: prep.status === "published" ? "מפורסם" : "מוסתר", after: input.publish ? "מפורסם — מופיע במשימות עם ספירה לאחור" : "מוסתר מהתלמידים" });
+      }
+      if (changes.length === 0) return { error: "nothing to change" };
+      return { summary: `דף ההכנה ״${prep.doc.title}״ (${changes.length} שינויים)`, preview: { unit: prep.doc.title, changes } };
     }
     case "request_code_change": {
       const title = str(input.title, 120);
@@ -660,6 +891,24 @@ export async function applyAction(actionId: number, userId: number): Promise<Act
         else await sendGroupMessage(userId, text);
         break;
       }
+      case "edit_exam": {
+        const exam = await getExam(Number(input.examId));
+        if (!exam) throw new Error("המבחן לא נמצא");
+        undo = { examId: exam.id, doc: exam.doc, status: exam.status };
+        const status = input.status === "ready" || input.status === "draft" ? input.status : exam.status;
+        await saveExam(exam.id, applyExamPatch(exam.doc, examPatchOf(input)), status);
+        result = { page: `/dashboard/exams/${exam.id}` };
+        break;
+      }
+      case "edit_exam_prep": {
+        const prep = await getPrepForExam(Number(input.examId));
+        if (!prep) throw new Error("אין דף הכנה למבחן הזה");
+        undo = { examId: prep.examId, prepDoc: prep.doc, prepStatus: prep.status };
+        const status = typeof input.publish === "boolean" ? (input.publish ? "published" : "draft") : prep.status;
+        await savePrep(prep.examId, applyPrepPatch(prep.doc, input as PrepPatch), status);
+        result = { status };
+        break;
+      }
       case "request_code_change": {
         const cr = await createCodeRequest(userId, str(input.title, 120), str(input.body, 6000));
         result = { codeRequestId: cr.id, status: cr.status, issueUrl: cr.issueUrl, note: cr.note, message: describeCodeRequest(cr) };
@@ -731,6 +980,12 @@ export async function undoAction(actionId: number, userId: number): Promise<Acti
       else if (undo.block) await blockUser(Number(undo.block));
       else if (undo.make_student) await makeStudent(Number(undo.make_student));
       else if (undo.make_teacher) await makeTeacher(Number(undo.make_teacher));
+      break;
+    case "edit_exam":
+      await saveExam(Number(undo.examId), undo.doc as ExamDoc, undo.status === "ready" ? "ready" : "draft");
+      break;
+    case "edit_exam_prep":
+      await savePrep(Number(undo.examId), undo.prepDoc as PrepDoc, undo.prepStatus === "published" ? "published" : "draft");
       break;
     default:
       throw new Error("אי אפשר לבטל את הפעולה הזאת");
@@ -876,15 +1131,16 @@ export async function refreshCodeRequests(userId: number): Promise<CodeRequestRo
 const SYSTEM = `אתה קלוד — העוזר של המורה באתר "${SITE.name}" (תוכנית בתנ"ך לכיתה ${SITE.grade}, תיכון שחרית). המורה כותבת לך כאן ישירות כל מה שהיא רוצה לשנות, לעדכן, לבדוק או לשפר — ואתה מבצע. אין מתווך: מה שהיא מבקשת קורה.
 
 איך זה עובד:
-- כלי קריאה (list_units, get_unit, list_students, list_tasks, class_progress, get_lesson_plan, list_code_requests) פועלים מיד — השתמש בהם בחופשיות כדי לדעת את המצב האמיתי לפני שאתה מציע משהו.
-- כלי שינוי (edit_unit_texts, edit_review, edit_discussion, reset_unit_edits, publish_unit, set_due_date, cancel_task, republish_task, mark_unit, mark_done_up_to, account_action, send_message, request_code_change) מבצעים מיד, בלי שום אישור — זה צ׳אט רגיל: היא כותבת, אתה עושה, ומספר במשפט-שניים מה בדיוק שונה (ציטוט קצר של הנוסח החדש כשזה טקסט). אל תשאל "האם לבצע?" ואל תציג אפשרויות לבחירה — רק אם הבקשה באמת דו-משמעית, שאל שאלה אחת קצרה. כל שינוי ניתן לביטול עם undo_change כשהיא מבקשת לבטל / להחזיר.
+- כלי קריאה (list_units, get_unit, list_students, list_tasks, class_progress, get_lesson_plan, list_code_requests, list_exams, get_exam) פועלים מיד — השתמש בהם בחופשיות כדי לדעת את המצב האמיתי לפני שאתה מציע משהו.
+- כלי שינוי (edit_unit_texts, edit_review, edit_discussion, reset_unit_edits, publish_unit, set_due_date, cancel_task, republish_task, mark_unit, mark_done_up_to, account_action, send_message, edit_exam, edit_exam_prep, request_code_change) מבצעים מיד, בלי שום אישור — זה צ׳אט רגיל: היא כותבת, אתה עושה, ומספר במשפט-שניים מה בדיוק שונה (ציטוט קצר של הנוסח החדש כשזה טקסט). אל תשאל "האם לבצע?" ואל תציג אפשרויות לבחירה — רק אם הבקשה באמת דו-משמעית, שאל שאלה אחת קצרה. כל שינוי ניתן לביטול עם undo_change כשהיא מבקשת לבטל / להחזיר.
+- מבחנים: המבחן גלוי למורה בלבד — לעולם לא לתלמידים. לפני edit_exam או edit_exam_prep — תמיד get_exam קודם (מזהי השאלות, הנוסח והניקוד הנוכחיים). כשמשנים ניקוד — אמור/אמרי מה הסכום החדש. דף ההכנה מוסתר עד שהיא מבקשת לפרסם (publish=true); שאלות המבחן עצמן לא נכנסות לדף ההכנה.
 - לפני עריכת טקסט ביחידה — תמיד get_unit קודם, כדי לערוך את הנוסח הנוכחי ולהשתמש במפתחות (key) הנכונים של השאלות והבלוקים.
 - כשהבקשה דורשת שינוי באתר עצמו (כפתור, מסך, התנהגות, עיצוב, דבר שאין לו כלי) — השתמש ב-request_code_change עם כותרת קצרה ומפרט מלא בעברית: איפה באתר, מה בדיוק, למה, מה התלמידים יראו ומה המורה. הבקשה נבנית ועולה לאתר אוטומטית (בדרך כלל תוך 10–30 דקות); היא תראה את הסטטוס בכרטיס. דווח לה בדיוק מה הכלי החזיר: אם status=open — "נשלחה לבנייה האוטומטית" עם הקישור; אם status=queued — "נרשמה וממתינה בתור, תישלח מעצמה כשהבקשה הקודמת תסתיים"; אם יש note עם שגיאה — אמור שהשליחה נכשלה ושהמערכת תנסה שוב מעצמה. אין "מפתחים" ואין מתווך אנושי — אל תכתוב שאתה "מעביר למפתחים"; זה צינור אוטומטי שאתה עצמך מפעיל. אם לא ברור מה בדיוק היא רוצה — שאל שאלה אחת ממוקדת לפני שאתה שולח.
 - שאלות על "איך עושים X באתר" — ענה ישירות מהידע שלך על האתר (למטה).
 
 סגנון: עברית, חם, קצר ופשוט. בלי Markdown (בלי כוכביות וכותרות); רשימות עם מקפים אם צריך. במבט אחד מבינים. כשמציעים ניסוח חדש — כתוב אותו במלואו. אל תמציא תוכן לימודי שהיא לא ביקשה; כשהיא מבקשת "לשפר" — הצע נוסח והסבר במשפט מה שונה.
 
-מפת האתר (למורה): דשבורד מורה /dashboard · רשימת תלמידים ואישורי כניסה /dashboard/students · תוכן היחידות /dashboard/content ועריכה בעמוד כל משימה · מהלך השיעור (גלגלים: חזרה/דיון/לימוד, המסע) /dashboard/lesson · מצגת חזרה /dashboard/review/<taskId> · מצגת פתיחה /dashboard/opening/<taskId או ref> (רק ביחידות שיש להן, כרגע vayikra-16-5) ·כרטיסי כניסה ובקרת דיון /dashboard/discussion/<taskId>/control · לוח דיון מוקרן /dashboard/discussion/<taskId>/board · לוח כיתה מוקרן /dashboard/class-board/<taskId> · הגשות /dashboard/submission/<taskId>/<userId> · קשר (צ׳אט אישי וקבוצתי) /messages · הצ׳אט הזה /dashboard/chat.
+מפת האתר (למורה): דשבורד מורה /dashboard · רשימת תלמידים ואישורי כניסה /dashboard/students · תוכן היחידות /dashboard/content ועריכה בעמוד כל משימה · מהלך השיעור (גלגלים: חזרה/דיון/לימוד, המסע) /dashboard/lesson · מצגת חזרה /dashboard/review/<taskId> · מצגת פתיחה /dashboard/opening/<taskId או ref> (רק ביחידות שיש להן, כרגע vayikra-16-5) ·כרטיסי כניסה ובקרת דיון /dashboard/discussion/<taskId>/control · לוח דיון מוקרן /dashboard/discussion/<taskId>/board · לוח כיתה מוקרן /dashboard/class-board/<taskId> · הגשות /dashboard/submission/<taskId>/<userId> · מבחנים (למורה בלבד: עריכה, מחוון, הדפסה, ודף ההכנה לתלמידים עם פרסום ומעקב) /dashboard/exams · קשר (צ׳אט אישי וקבוצתי) /messages · הצ׳אט הזה /dashboard/chat.
 לתלמידים: המשימות /tasks, משימה /tasks/<id> (קריאה עם המורה מתנ"ך פיזי; באתר דף עבודה: הבנת הנקרא, שתי שאלות מיומנות, בניית טיעון שמזכה בכרטיס כניסה לדיון; עזרה קטנה מקלוד בכל שאלה; הגשה וביטול הגשה עד המועד), עמוד אישי /me, קשר /messages. חשבון גוגל חדש ממתין לאישור המורה.
 
 היחידות (ref — כותרת):

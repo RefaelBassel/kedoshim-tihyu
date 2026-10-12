@@ -16,7 +16,7 @@ export default function LessonDock() {
   const hidden =
     !pathname ||
     pathname.startsWith("/dashboard/lesson") ||
-    /\/(board|review)(\/|$)/.test(pathname) ||
+    /\/(board|review|print)(\/|$)/.test(pathname) ||
     pathname.startsWith("/dashboard/class-board") ||
     pathname.startsWith("/dashboard/opening") ||
     pathname === "/login" ||
