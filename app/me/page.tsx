@@ -19,6 +19,8 @@ import { db } from "@/lib/db";
 import { tasksForStudent, STATUS_META } from "@/lib/tasks";
 import { unreadFor, markAllRead } from "@/lib/notify";
 import { formatHebDate, formatHebDateTime, formatWorkTime } from "@/lib/hebrew";
+import { prepCardsFor } from "@/lib/exam-prep";
+import { readyWord } from "@/lib/prep-shared";
 
 // Personal page — strongly visual learning status (in the spirit of the
 // אמונה site journey): overdue alerts, the current task + its due date,
@@ -38,6 +40,7 @@ export default async function MePage() {
   let questions: { id: number; question: string; starred: boolean; chosen: boolean }[] = [];
   let notifications: Awaited<ReturnType<typeof unreadFor>> = [];
   let reflections: (ReflectionPoint & { contextRef: string | null; note: string | null })[] = [];
+  let prepCards: Awaited<ReturnType<typeof prepCardsFor>> = [];
 
   try {
     if (!user.guest) {
@@ -68,6 +71,7 @@ export default async function MePage() {
         note: (r.note as string | null) ?? null,
       }));
       await markAllRead(userId);
+      if (!isTeacher) prepCards = await prepCardsFor(userId);
     }
   } catch {
     // DB not available
@@ -133,6 +137,38 @@ export default async function MePage() {
               ))}
             </ul>
           </div>
+        )}
+
+        {/* exam preparation: the "ready" badge for whoever finished it all */}
+        {prepCards.map((p) =>
+          p.ready ? (
+            <Link
+              key={p.id}
+              href={`/exams#prep-${p.id}`}
+              className="mb-6 flex items-center gap-4 rounded-2xl border-2 border-[color:var(--success)] bg-[color:var(--success)]/10 p-4 transition hover:shadow-md"
+            >
+              <span className="text-4xl" aria-hidden>🏅</span>
+              <span>
+                <span className="block font-display text-xl font-extrabold text-[color:var(--success)]">
+                  {readyWord(user.addressForm)} למבחן!
+                </span>
+                <span className="text-sm text-[color:var(--foreground)]/70">
+                  השלמת את כל התרגול ב״{p.title}״
+                </span>
+              </span>
+            </Link>
+          ) : (
+            <Link
+              key={p.id}
+              href={`/exams#prep-${p.id}`}
+              className="mb-6 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[color:var(--accent)]/50 bg-[color:var(--card)] px-4 py-3 text-sm transition hover:border-[color:var(--accent)]"
+            >
+              <span className="font-bold text-[color:var(--primary)]">📚 {p.title}</span>
+              <span className="font-semibold text-[color:var(--accent)]">
+                השלמת {p.done} מתוך {p.total} ←
+              </span>
+            </Link>
+          )
         )}
 
         {/* stat tiles */}

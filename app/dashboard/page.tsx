@@ -108,7 +108,7 @@ export default async function DashboardPage() {
           href="/dashboard/exams"
           className="rounded-full border-2 border-[color:var(--primary)]/50 px-5 py-2 text-sm font-bold text-[color:var(--primary)] transition hover:bg-[color:var(--primary)]/10"
         >
-          🧪 מבחנים — חיבור, עריכה והדפסה
+          🧪 מבחנים ודפי הכנה — עריכה, מחוון והדפסה
         </Link>
         <Link
           href="/dashboard/chat"

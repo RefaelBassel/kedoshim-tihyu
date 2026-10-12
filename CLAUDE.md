@@ -116,6 +116,17 @@ a projected board never contains teacher input; the control is a separate page.
   Claude only proposes — nothing is saved until the teacher presses save.
 - The unit's discussion question is the single source of truth (deck, hub, debate board).
 
+## Exams and exam prep (issue #7)
+- `/dashboard/exams` (nav: "מבחנים"; also on the vayikra-16-5 card) — teacher-only exams (lib/exams.ts).
+  Exams written ahead live in `content/exams/` and are created ONCE as drafts (exam_seeds table);
+  the first: ויקרא ט״ז, 18.10.2026, 45 min. The editor autosaves (components/autosave.tsx), shows
+  the answer key beside each question, and prints a clean student version and the answer key.
+- Each exam has a student prep page (lib/exam-prep.ts): chapter map, terms, auto-checked practice,
+  argument practice with Claude feedback. Hidden until the teacher publishes; then it is a card on
+  /tasks with a countdown, the page /exams, and a "ready" badge on /me. Students get the prep WITHOUT
+  answers (answers only via /api/exam-prep/*/check) and never anything of the exam itself.
+- The teacher chat edits both: tools list_exams, get_exam, edit_exam, edit_exam_prep (undoable).
+
 ## Opening decks (issue #5)
 - `/dashboard/opening/<taskId | ref>` — a short cinematic opening the teacher projects at
   the start of a unit (teacher only, chrome-free). Generic player `components/opening-deck.tsx`;

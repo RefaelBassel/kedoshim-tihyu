@@ -1156,6 +1156,7 @@ export function UnitPopover({
             <a href={`/dashboard/discussion/${unit.taskId}/board`} target="_blank" rel="noopener noreferrer" className="rounded-full border px-3 py-1" style={{ borderColor: KIND.discussion.color, color: KIND.discussion.color }}>🖥️ להקרין את לוח הדיון ↗</a>
             <a href={`/tasks/${unit.taskId}`} className="rounded-full px-3 py-1 text-white" style={{ background: KIND.study.color }}>📖 פתיחת המשימה</a>
             <a href={`/dashboard/content/${unit.ref}`} className="rounded-full border border-[color:var(--border)] px-3 py-1 text-[color:var(--primary)]">✏️ עריכת התוכן</a>
+            {unit.ref === EXAM_UNIT_REF && <ExamLink />}
           </div>
         </>
       ) : (
@@ -1165,10 +1166,21 @@ export function UnitPopover({
           <div className="mt-3 flex flex-wrap gap-1.5 text-[11px] font-bold">
             {hasOpening(unit.ref) && <OpeningLink to={unit.ref} />}
             <a href={`/dashboard/content/${unit.ref}`} className="rounded-full border border-[color:var(--border)] px-3 py-1 text-[color:var(--primary)]">✏️ עריכת התוכן</a>
+            {unit.ref === EXAM_UNIT_REF && <ExamLink />}
           </div>
         </>
       )}
     </div>
+  );
+}
+
+// the last unit of ויקרא ט״ז leads to the chapter's exam (teacher only)
+const EXAM_UNIT_REF = "vayikra-16-5";
+function ExamLink() {
+  return (
+    <a href="/dashboard/exams" className="rounded-full border-2 border-[color:var(--primary)] px-3 py-1 text-[color:var(--primary)]">
+      🧪 מבחן ודף הכנה — ויקרא ט״ז
+    </a>
   );
 }
 

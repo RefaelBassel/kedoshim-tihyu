@@ -9,7 +9,7 @@ import {
 } from "docx";
 import type { ExamDoc, ExamRow } from "./exams";
 import { totalPoints } from "./exams";
-import { linesFor, partHeading, type ExamVersion } from "./exam-export-shared";
+import { formatExamDate, linesForQuestion, partHeading, questionNumbers, type ExamVersion } from "./exam-export-shared";
 
 // ------------------------------------------------------------- Word ------
 // docx: `bidirectional` on the paragraph gives RTL paragraph direction,
@@ -44,12 +44,13 @@ function answerLines(n: number) {
 
 export async function examToDocx(exam: ExamRow, version: ExamVersion): Promise<Buffer> {
   const doc: ExamDoc = exam.doc;
+  const nums = questionNumbers(doc);
   const children: Paragraph[] = [];
   children.push(p("תיכון שחרית · בית מדרש תורה שבכתב · כיתה ט", { size: 20 }));
   children.push(p(doc.title, { bold: true, size: 36, heading: HeadingLevel.TITLE, after: 60 }));
   if (doc.subtitle) children.push(p(doc.subtitle, { size: 24, after: 120 }));
   children.push(
-    p(`שם: ______________________    כיתה: ________    תאריך: ____________    משך: ${doc.durationMin} דק׳    סה״כ: ${totalPoints(doc)} נק׳`, { size: 22, after: 160 })
+    p(`שם: ______________________    כיתה: ________    תאריך: ${formatExamDate(doc.examDate) || "____________"}    משך: ${doc.durationMin} דק׳    סה״כ: ${totalPoints(doc)} נק׳`, { size: 22, after: 160 })
   );
   if (doc.instructions) children.push(p(doc.instructions, { size: 22, after: 200, shade: true }));
   if (version === "teacher") children.push(p("גרסת מורה — עם תשובות ומחוון", { bold: true, size: 22, after: 200 }));
@@ -58,11 +59,11 @@ export async function examToDocx(exam: ExamRow, version: ExamVersion): Promise<B
     const pts = s.questions.reduce((a, q) => a + (Number(q.points) || 0), 0);
     children.push(p(partHeading(si, s.title, pts), { bold: true, size: 28, heading: HeadingLevel.HEADING_1, before: 240, after: 60 }));
     if (s.intro) children.push(p(s.intro, { size: 22, after: 120 }));
-    s.questions.forEach((q, qi) => {
+    s.questions.forEach((q) => {
       if (q.verse) children.push(p(`(${q.verseNum}) ${q.verse}`, { size: 26, font: "Times New Roman", after: 80, shade: true }));
-      children.push(p(`${qi + 1}. ${q.text} (${q.points} נק׳)`, { size: 24, after: 60 }));
+      children.push(p(`${nums.get(q.id)}. ${q.text} (${q.points} נק׳)`, { size: 24, after: 60 }));
       if (version === "teacher") children.push(p(`✔ ${q.answer}`, { size: 22, after: 160, shade: true }));
-      else children.push(...answerLines(linesFor(s.key)));
+      else children.push(...answerLines(linesForQuestion(s.key, q)));
     });
   });
   children.push(p("בהצלחה!", { bold: true, size: 24, before: 240, align: AlignmentType.CENTER }));
