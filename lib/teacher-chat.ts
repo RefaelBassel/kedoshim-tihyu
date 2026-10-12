@@ -31,6 +31,7 @@ import { sendGroupMessage, sendMessage } from "./messages";
 import { formatHebDateTime, israelLocalToUnix } from "./hebrew";
 import { applyExamPatch, getExam, listExams, questionNumbers, saveExam, totalPoints, EXAM_STATUS_LABEL, type ExamDoc, type ExamPatch } from "./exams";
 import { applyPrepPatch, getPrepForExam, prepClassProgress, savePrep, type PrepDoc, type PrepPatch } from "./exam-prep";
+import { SLIDE_BLOCK_ICON, SLIDE_BLOCK_KEYS, cleanSlide, getSlide, saveSlide, type SlideDoc } from "./class-slide";
 
 // ריעות ↔ קלוד — the teacher's direct chat with Claude inside the site.
 // Whatever she wants changed, she writes here. Claude has TOOLS that are the
@@ -260,7 +261,7 @@ async function unitSnapshot(ref: string) {
 // --------------------------------------------------------------- tools ----
 // READ tools run at once. WRITE tools only PROPOSE: the server records an
 // action and tells Claude "proposed — waiting for the teacher's ✓".
-const READ_TOOLS = new Set(["list_units", "get_unit", "list_students", "class_progress", "list_tasks", "get_lesson_plan", "list_code_requests", "list_exams", "get_exam"]);
+const READ_TOOLS = new Set(["list_units", "get_unit", "list_students", "class_progress", "list_tasks", "get_lesson_plan", "list_code_requests", "list_exams", "get_exam", "get_class_slide"]);
 
 const PREP_ITEM_SCHEMA = {
   type: "object",
@@ -324,6 +325,11 @@ export const TOOLS: Anthropic.Tool[] = [
     name: "get_exam",
     description: "One exam in full — every part (sectionKey) and question (questionId, number, text, points, answer key, writing lines) — and its preparation page (map, terms, practice items with itemId/kind/options/correct/explain, argument). Always call before edit_exam or edit_exam_prep.",
     input_schema: { type: "object", properties: { examId: { type: "integer" } }, required: ["examId"], additionalProperties: false },
+  },
+  {
+    name: "get_class_slide",
+    description: "The class rules slide as it is now (/dashboard/slide): title, the three blocks task / rules / done with heading and lines, and the closing line (footer). Always call before edit_class_slide.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
   },
   // ---- write (proposals) ----
   {
@@ -470,6 +476,25 @@ export const TOOLS: Anthropic.Tool[] = [
     input_schema: { type: "object", properties: { to: { type: "string", enum: ["class", "student"] }, userId: { type: "integer" }, text: { type: "string" } }, required: ["to", "text"], additionalProperties: false },
   },
   {
+    name: "edit_class_slide",
+    description: "Change the class rules slide (/dashboard/slide, projected at the start of a lesson, teacher only): the main title, the three blocks (task = 📝 the lesson's task, rules = 📏 the rules, done = 🏠 'finished?') — each a heading and its full list of lines (replaces the block's lines) — and the small closing line (footer). Only pass what changes. Call get_class_slide first.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        blocks: {
+          type: "object",
+          properties: Object.fromEntries(
+            ["task", "rules", "done"].map((k) => [k, { type: "object", properties: { heading: { type: "string" }, lines: { type: "array", items: { type: "string" }, maxItems: 10 } }, additionalProperties: false }])
+          ),
+          additionalProperties: false,
+        },
+        footer: { type: "string", description: "\"\" removes the closing line" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "undo_change",
     description: "Revert a change made earlier in this chat (its actionId was returned when it ran). Without actionId: the most recent revertible change. Use when the teacher asks to cancel / undo / put back.",
     input_schema: { type: "object", properties: { actionId: { type: "integer" } }, additionalProperties: false },
@@ -552,6 +577,20 @@ function diffPrep(before: PrepDoc, after: PrepDoc): Change[] {
   return out;
 }
 
+// --------------------------------------------------------- class slide ----
+function diffSlide(before: SlideDoc, after: SlideDoc): Change[] {
+  const out: Change[] = [];
+  if (before.title !== after.title) out.push({ what: "כותרת ראשית", before: before.title, after: after.title });
+  for (const k of SLIDE_BLOCK_KEYS) {
+    const b = before.blocks[k];
+    const a = after.blocks[k];
+    if (b.heading !== a.heading) out.push({ what: `${SLIDE_BLOCK_ICON[k]} כותרת הבלוק`, before: b.heading, after: a.heading });
+    if (b.lines.join("\n") !== a.lines.join("\n")) out.push({ what: `${SLIDE_BLOCK_ICON[k]} ${a.heading} — השורות`, before: b.lines.join("\n") || null, after: a.lines.join("\n") || null });
+  }
+  if (before.footer !== after.footer) out.push({ what: "שורת הסיום", before: before.footer || null, after: after.footer || null });
+  return out;
+}
+
 // ------------------------------------------------------- read executors ----
 async function runReadTool(name: string, input: Record<string, unknown>, userId: number): Promise<unknown> {
   switch (name) {
@@ -584,6 +623,8 @@ async function runReadTool(name: string, input: Record<string, unknown>, userId:
     }
     case "get_lesson_plan":
       return await getPlan();
+    case "get_class_slide":
+      return await getSlide();
     case "list_code_requests":
       return (await listCodeRequests(userId)).map((c) => ({ id: c.id, title: c.title, status: c.status, issueUrl: c.issueUrl, prUrl: c.prUrl, previewUrl: c.previewUrl, note: c.note }));
     case "list_exams": {
@@ -790,6 +831,12 @@ async function buildProposal(name: string, input: Record<string, unknown>): Prom
       if (changes.length === 0) return { error: "nothing to change" };
       return { summary: `דף ההכנה ״${prep.doc.title}״ (${changes.length} שינויים)`, preview: { unit: prep.doc.title, changes } };
     }
+    case "edit_class_slide": {
+      const current = await getSlide();
+      const changes = diffSlide(current, cleanSlide(input, current));
+      if (changes.length === 0) return { error: "nothing to change" };
+      return { summary: `שקופית כללי השיעור (${changes.length} שינויים)`, preview: { unit: "שקופית כללי השיעור", changes } };
+    }
     case "request_code_change": {
       const title = str(input.title, 120);
       const body = str(input.body, 6000);
@@ -934,6 +981,13 @@ export async function applyAction(actionId: number, userId: number): Promise<Act
         result = { status };
         break;
       }
+      case "edit_class_slide": {
+        const current = await getSlide();
+        undo = { slide: current };
+        await saveSlide(cleanSlide(input, current), userId);
+        result = { page: "/dashboard/slide" };
+        break;
+      }
       case "request_code_change": {
         const cr = await createCodeRequest(userId, str(input.title, 120), str(input.body, 6000));
         result = { codeRequestId: cr.id, status: cr.status, issueUrl: cr.issueUrl, note: cr.note, message: describeCodeRequest(cr) };
@@ -1011,6 +1065,9 @@ export async function undoAction(actionId: number, userId: number): Promise<Acti
       break;
     case "edit_exam_prep":
       await savePrep(Number(undo.examId), undo.prepDoc as PrepDoc, undo.prepStatus === "published" ? "published" : "draft");
+      break;
+    case "edit_class_slide":
+      await saveSlide(cleanSlide(undo.slide), userId);
       break;
     default:
       throw new Error("אי אפשר לבטל את הפעולה הזאת");
@@ -1156,9 +1213,10 @@ export async function refreshCodeRequests(userId: number): Promise<CodeRequestRo
 const SYSTEM = `אתה קלוד — העוזר של המורה באתר "${SITE.name}" (תוכנית בתנ"ך לכיתה ${SITE.grade}, תיכון שחרית). המורה כותבת לך כאן ישירות כל מה שהיא רוצה לשנות, לעדכן, לבדוק או לשפר — ואתה מבצע. אין מתווך: מה שהיא מבקשת קורה.
 
 איך זה עובד:
-- כלי קריאה (list_units, get_unit, list_students, list_tasks, class_progress, get_lesson_plan, list_code_requests, list_exams, get_exam) פועלים מיד — השתמש בהם בחופשיות כדי לדעת את המצב האמיתי לפני שאתה מציע משהו.
-- כלי שינוי (edit_unit_texts, edit_review, edit_discussion, reset_unit_edits, publish_unit, set_due_date, cancel_task, republish_task, mark_unit, mark_done_up_to, account_action, send_message, edit_exam, edit_exam_prep, request_code_change) מבצעים מיד, בלי שום אישור — זה צ׳אט רגיל: היא כותבת, אתה עושה, ומספר במשפט-שניים מה בדיוק שונה (ציטוט קצר של הנוסח החדש כשזה טקסט). אל תשאל "האם לבצע?" ואל תציג אפשרויות לבחירה — רק אם הבקשה באמת דו-משמעית, שאל שאלה אחת קצרה. כל שינוי ניתן לביטול עם undo_change כשהיא מבקשת לבטל / להחזיר.
+- כלי קריאה (list_units, get_unit, list_students, list_tasks, class_progress, get_lesson_plan, list_code_requests, list_exams, get_exam, get_class_slide) פועלים מיד — השתמש בהם בחופשיות כדי לדעת את המצב האמיתי לפני שאתה מציע משהו.
+- כלי שינוי (edit_unit_texts, edit_review, edit_discussion, reset_unit_edits, publish_unit, set_due_date, cancel_task, republish_task, mark_unit, mark_done_up_to, account_action, send_message, edit_exam, edit_exam_prep, edit_class_slide, request_code_change) מבצעים מיד, בלי שום אישור — זה צ׳אט רגיל: היא כותבת, אתה עושה, ומספר במשפט-שניים מה בדיוק שונה (ציטוט קצר של הנוסח החדש כשזה טקסט). אל תשאל "האם לבצע?" ואל תציג אפשרויות לבחירה — רק אם הבקשה באמת דו-משמעית, שאל שאלה אחת קצרה. כל שינוי ניתן לביטול עם undo_change כשהיא מבקשת לבטל / להחזיר.
 - מבחנים: המבחן גלוי למורה בלבד — לעולם לא לתלמידים. לפני edit_exam או edit_exam_prep — תמיד get_exam קודם (מזהי השאלות, הנוסח והניקוד הנוכחיים). כשמשנים ניקוד — אמור/אמרי מה הסכום החדש. דף ההכנה מוסתר עד שהיא מבקשת לפרסם (publish=true); שאלות המבחן עצמן לא נכנסות לדף ההכנה.
+- שקופית כללי השיעור (/dashboard/slide, למורה בלבד, מוקרנת בתחילת שיעור): כותרת, שלושה בלוקים — task (📝 המשימה), rules (📏 הכללים), done (🏠 סיימת?) — ושורת סיום. כשהיא מבקשת לעדכן אותה לשיעור הבא — get_class_slide ואז edit_class_slide (lines מחליף את כל השורות של הבלוק).
 - לפני עריכת טקסט ביחידה — תמיד get_unit קודם, כדי לערוך את הנוסח הנוכחי ולהשתמש במפתחות (key) הנכונים של השאלות והבלוקים.
 - הפסוקים שמוצגים ליד שאלה (או ליד שדה בתוך שאלה) נערכים ב-edit_unit_texts דרך verses: מפתח "q-key" או "q-key:field-key", וערך כמו "ט״ז–כ׳" או "ד׳, כ״ג–כ״ד, ל״ב" (מספרי פסוקים בפרק הראשי של היחידה); "" מסיר את הפסוקים.
 - כשהבקשה דורשת שינוי באתר עצמו (כפתור, מסך, התנהגות, עיצוב, דבר שאין לו כלי) — השתמש ב-request_code_change עם כותרת קצרה ומפרט מלא בעברית: איפה באתר, מה בדיוק, למה, מה התלמידים יראו ומה המורה. הבקשה נבנית ועולה לאתר אוטומטית (בדרך כלל תוך 10–30 דקות); היא תראה את הסטטוס בכרטיס. דווח לה בדיוק מה הכלי החזיר: אם status=open — "נשלחה לבנייה האוטומטית" עם הקישור; אם status=queued — "נרשמה וממתינה בתור, תישלח מעצמה כשהבקשה הקודמת תסתיים"; אם יש note עם שגיאה — אמור שהשליחה נכשלה ושהמערכת תנסה שוב מעצמה. אין "מפתחים" ואין מתווך אנושי — אל תכתוב שאתה "מעביר למפתחים"; זה צינור אוטומטי שאתה עצמך מפעיל. אם לא ברור מה בדיוק היא רוצה — שאל שאלה אחת ממוקדת לפני שאתה שולח.
@@ -1166,7 +1224,7 @@ const SYSTEM = `אתה קלוד — העוזר של המורה באתר "${SITE.
 
 סגנון: עברית, חם, קצר ופשוט. בלי Markdown (בלי כוכביות וכותרות); רשימות עם מקפים אם צריך. במבט אחד מבינים. כשמציעים ניסוח חדש — כתוב אותו במלואו. אל תמציא תוכן לימודי שהיא לא ביקשה; כשהיא מבקשת "לשפר" — הצע נוסח והסבר במשפט מה שונה.
 
-מפת האתר (למורה): דשבורד מורה /dashboard · רשימת תלמידים ואישורי כניסה /dashboard/students · תוכן היחידות /dashboard/content ועריכה בעמוד כל משימה · מהלך השיעור (גלגלים: חזרה/דיון/לימוד, המסע) /dashboard/lesson · מצגת חזרה /dashboard/review/<taskId> · מצגת פתיחה /dashboard/opening/<taskId או ref> (רק ביחידות שיש להן, כרגע vayikra-16-5) ·כרטיסי כניסה ובקרת דיון /dashboard/discussion/<taskId>/control · לוח דיון מוקרן /dashboard/discussion/<taskId>/board · לוח כיתה מוקרן /dashboard/class-board/<taskId> · הגשות /dashboard/submission/<taskId>/<userId> · מבחנים (למורה בלבד: עריכה, מחוון, הדפסה, ודף ההכנה לתלמידים עם פרסום ומעקב) /dashboard/exams · קשר (צ׳אט אישי וקבוצתי) /messages · הצ׳אט הזה /dashboard/chat.
+מפת האתר (למורה): דשבורד מורה /dashboard · רשימת תלמידים ואישורי כניסה /dashboard/students · תוכן היחידות /dashboard/content ועריכה בעמוד כל משימה · מהלך השיעור (גלגלים: חזרה/דיון/לימוד, המסע) /dashboard/lesson · מצגת חזרה /dashboard/review/<taskId> · מצגת פתיחה /dashboard/opening/<taskId או ref> (רק ביחידות שיש להן, כרגע vayikra-16-5) · שקופית כללי השיעור /dashboard/slide (עריכה בכפתור בפינה או כאן בצ׳אט) ·כרטיסי כניסה ובקרת דיון /dashboard/discussion/<taskId>/control · לוח דיון מוקרן /dashboard/discussion/<taskId>/board · לוח כיתה מוקרן /dashboard/class-board/<taskId> · הגשות /dashboard/submission/<taskId>/<userId> · מבחנים (למורה בלבד: עריכה, מחוון, הדפסה, ודף ההכנה לתלמידים עם פרסום ומעקב) /dashboard/exams · קשר (צ׳אט אישי וקבוצתי) /messages · הצ׳אט הזה /dashboard/chat.
 לתלמידים: המשימות /tasks, משימה /tasks/<id> (קריאה עם המורה מתנ"ך פיזי; באתר דף עבודה: הבנת הנקרא, שתי שאלות מיומנות, בניית טיעון שמזכה בכרטיס כניסה לדיון; עזרה קטנה מקלוד בכל שאלה; הגשה וביטול הגשה עד המועד), עמוד אישי /me, קשר /messages. חשבון גוגל חדש ממתין לאישור המורה.
 
 היחידות (ref — כותרת):

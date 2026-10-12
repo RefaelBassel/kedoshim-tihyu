@@ -16,12 +16,14 @@ export default function SaveButton({
   onSave,
   label = "שמירת השינויים",
   idleLabel = "אין שינויים",
+  savedNote = "השינויים נשמרו ויופיעו לתלמידים",
   className = "",
 }: {
   dirty: boolean;
   onSave: () => Promise<void>;
   label?: string;
   idleLabel?: string;
+  savedNote?: string;
   className?: string;
 }) {
   const [phase, setPhase] = useState<Phase>(dirty ? "armed" : "idle");
@@ -136,7 +138,7 @@ export default function SaveButton({
       )}
       {phase === "saved" && (
         <span className="text-xs font-semibold text-[color:var(--success)] save-fade">
-          השינויים נשמרו ויופיעו לתלמידים
+          {savedNote}
         </span>
       )}
       {phase === "error" && error && (

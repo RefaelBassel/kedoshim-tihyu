@@ -139,3 +139,10 @@ a projected board never contains teacher input; the control is a separate page.
   button on its lesson card and dashboard task page. Slide kinds: reveal / question /
   challenge (timer) / map (bar filling part by part) / launch (→ class board, or back to the
   lesson page while the unit is unpublished).
+
+## Class rules slide (issue #11)
+- `/dashboard/slide` — one full-screen slide (teacher only) with the lesson's title, three blocks
+  (📝 task, 📏 rules, 🏠 finished? in green) and a closing line; fits 1920×1080 without scrolling.
+  Linked from the lesson page and the dashboard. Stored as one row in `class_slide`
+  (lib/class-slide.ts); edited in place (corner ✏️ → side drawer, live preview) or by the teacher
+  chat (get_class_slide / edit_class_slide, undoable).
