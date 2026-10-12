@@ -26,17 +26,22 @@ export default function Chat({
   contacts: initialContacts,
   meId,
   meName,
+  initialActiveId,
+  initialDraft = "",
 }: {
   contacts: Contact[];
   meId: number;
   meName: string;
+  initialActiveId?: number;
+  initialDraft?: string;
 }) {
   const [contacts] = useState(initialContacts);
+  const preset = initialContacts.find((c) => c.id === initialActiveId);
   const [active, setActive] = useState<Contact | null>(
-    initialContacts[0] ?? null
+    preset ?? initialContacts[0] ?? null
   );
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(preset ? initialDraft : "");
   const [busy, setBusy] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const firstLoad = useRef(true);

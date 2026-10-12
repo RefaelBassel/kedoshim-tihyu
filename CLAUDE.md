@@ -132,6 +132,13 @@ a projected board never contains teacher input; the control is a separate page.
   answers (answers only via /api/exam-prep/*/check) and never anything of the exam itself.
 - The teacher chat edits both: tools list_exams, get_exam, edit_exam, edit_exam_prep (undoable).
 
+## Class pulse (issue #13)
+- `/dashboard/exams/<examId>/pulse` ("💓 דופק כיתה", teacher only; lib/exam-pulse.ts) — metrics, readiness
+  chart, per-student table (prep status/%, first-try right, chapter tasks vayikra-16-* + mikdash-live as dots,
+  readiness = 50% prep + 50% tasks), hardest practice items, "💬 תזכורת" → `/messages?to=<id>&draft=…`
+  (prefilled, never sent by itself). Refreshes every minute; projection mode hides every name.
+  Linked on every exam card and on the dashboard while an exam is upcoming (date ahead or prep published).
+
 ## Opening decks (issue #5)
 - `/dashboard/opening/<taskId | ref>` — a short cinematic opening the teacher projects at
   the start of a unit (teacher only, chrome-free). Generic player `components/opening-deck.tsx`;

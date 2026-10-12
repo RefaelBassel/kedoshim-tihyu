@@ -11,6 +11,7 @@ import { TASK_REGISTRY, positionLabel } from "@/content/tasks/registry";
 import PrintLinks from "@/components/task/print-links";
 import { formatHebDate, formatHebDateTime, israelLocalToUnix } from "@/lib/hebrew";
 import { revalidatePath } from "next/cache";
+import { upcomingExams } from "@/lib/exam-pulse";
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -22,6 +23,7 @@ export default async function DashboardPage() {
   const isGuest = Boolean(user.guest);
 
   let students: Awaited<ReturnType<typeof allStudents>> = [];
+  let upcoming: Awaited<ReturnType<typeof upcomingExams>> = [];
   let pendingCount = 0;
   let tasks: Awaited<ReturnType<typeof allTasksWithStats>> = [];
   let reflections: {
@@ -40,6 +42,7 @@ export default async function DashboardPage() {
       (a) => a.state === "pending" && a.role !== "teacher"
     ).length;
     tasks = await allTasksWithStats();
+    upcoming = await upcomingExams();
     const refRes = await db().execute({
       sql: `SELECT u.full_name, u.email, r.context_ref, r.difficulty, r.pshat_progress,
                    r.argument_progress, r.note, r.created_at
@@ -138,6 +141,21 @@ export default async function DashboardPage() {
           מלווה אותך.
         </p>
       </Link>
+
+      {/* an upcoming exam (date ahead or prep published) → the class pulse */}
+      {upcoming.length > 0 && (
+        <div className="mx-auto mb-8 flex max-w-3xl flex-wrap justify-center gap-2">
+          {upcoming.map((e) => (
+            <Link
+              key={e.id}
+              href={`/dashboard/exams/${e.id}/pulse`}
+              className="rounded-full border-2 border-[color:var(--accent)]/60 bg-[color:var(--card)] px-5 py-2 text-sm font-bold text-[color:var(--accent)] transition hover:bg-[color:var(--accent)]/10"
+            >
+              💓 דופק כיתה — {e.title}
+            </Link>
+          ))}
+        </div>
+      )}
 
       {/* stats */}
       <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
