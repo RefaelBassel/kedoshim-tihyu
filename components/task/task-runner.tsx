@@ -1,6 +1,7 @@
 "use client";
 
 import { formatHebDateTime } from "@/lib/hebrew";
+import { chapterLabel, chapterLength, formatVerseNums, parseVerseSpec, versesForSpec } from "@/lib/verse-spec";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type {
@@ -1070,6 +1071,7 @@ export default function TaskRunner({
                     onlySection={section.key}
                     edits={editable.edits}
                     unitEdits={editable.unit}
+                    chapter={{ label: chapterLabel(mainPassage.ref), max: chapterLength(mainPassage.verses) }}
                     onClose={() => setEditingSection(null)}
                   />
                 </div>
@@ -1087,6 +1089,7 @@ export default function TaskRunner({
                     askClaude={askClaude}
                     onAskQuestion={questionBank ? openPassageQuestion : undefined}
                     allowMark={!simple}
+                    chapter={mainPassage}
                   />
                 ))}
               </div>
@@ -1965,6 +1968,7 @@ function InteractivePassage({
   setMenu,
   readOnly,
   compact,
+  inline,
   onAskQuestion,
   allowMark = true,
 }: {
@@ -1973,6 +1977,8 @@ function InteractivePassage({
   setMenu: (m: WordMenuState | null) => void;
   readOnly: boolean;
   compact?: boolean;
+  // the verses pinned to a worksheet question: a lighter box, no Sefaria link
+  inline?: boolean;
   onAskQuestion?: (ref: string) => void;
   // false in simple tasks: words open audio + Claude help only
   allowMark?: boolean;
@@ -1998,6 +2004,8 @@ function InteractivePassage({
     first &&
     last &&
     locs.every((l) => l && l.chapter === first.chapter) &&
+    // pinned verse lists skip verses ("ד׳, כ״ג–כ״ד") — a span would play the gaps
+    (!inline || locs.every((l, i) => i === 0 || l!.idx === locs[i - 1]!.idx + 1)) &&
     vAudio.has(first.chapter, first.idx) &&
     vAudio.has(first.chapter, last.idx);
   const spanPlaying =
@@ -2006,9 +2014,20 @@ function InteractivePassage({
     vAudio.playing.from === first.idx &&
     vAudio.playing.to === last.idx;
   return (
-    <div className="relative mb-6 rounded-2xl border border-[color:var(--border)] bg-[color:var(--background)] p-5 sm:p-7">
-      <p className="mb-3 flex items-center justify-between gap-2 font-bold tracking-wide text-[color:var(--accent)]">
-        <span className="font-display text-sm sm:text-base">📖 {passage.ref}</span>
+    <div
+      className={
+        inline
+          ? "relative rounded-xl border border-[color:var(--accent)]/25 bg-[color:var(--background)] p-4"
+          : "relative mb-6 rounded-2xl border border-[color:var(--border)] bg-[color:var(--background)] p-5 sm:p-7"
+      }
+    >
+      <p
+        className={[
+          "flex items-center justify-between gap-2 font-bold tracking-wide text-[color:var(--accent)]",
+          inline ? "mb-2 flex-wrap" : "mb-3",
+        ].join(" ")}
+      >
+        <span className={inline ? "text-[11px]" : "font-display text-sm sm:text-base"}>📖 {passage.ref}</span>
         <span className="flex items-center gap-1.5">
           {spanPlayable && (
             <button
@@ -2055,7 +2074,7 @@ function InteractivePassage({
               </button>
             </>
           )}
-          {passage.sefariaRef && (
+          {passage.sefariaRef && !inline && (
             <a
               href={`https://www.sefaria.org.il/${passage.sefariaRef}?lang=he`}
               target="_blank"
@@ -2271,6 +2290,7 @@ function BlockView({
   askClaude,
   onAskQuestion,
   allowMark = true,
+  chapter,
 }: {
   block: TaskBlock;
   answers: Record<string, string>;
@@ -2281,6 +2301,8 @@ function BlockView({
   askClaude: (context: string, input: string) => void;
   onAskQuestion?: (ref: string) => void;
   allowMark?: boolean;
+  // the unit's main passage — questions pin their verses from it
+  chapter: PassageBlock;
 }) {
   if (block.type === "art") {
     return <TaskArt art={block.art} caption={block.caption} />;
@@ -2345,9 +2367,47 @@ function BlockView({
       </div>
     );
   }
-  // question
-  const q = block as QuestionBlock;
+  return (
+    <QuestionView
+      q={block as QuestionBlock}
+      answers={answers}
+      setAnswer={setAnswer}
+      markOf={markOf}
+      setMenu={setMenu}
+      readOnly={readOnly}
+      askClaude={askClaude}
+      chapter={chapter}
+    />
+  );
+}
+
+// A worksheet question. Verses pinned to it (`verses`) sit in an open box
+// under the prompt — beside the answer fields on wide screens (sticky), above
+// them on phones — so the student never scrolls back up to the chapter.
+// A field with verses of its own gets a small "📖 פסוקים" link.
+function QuestionView({
+  q,
+  answers,
+  setAnswer,
+  markOf,
+  setMenu,
+  readOnly,
+  askClaude,
+  chapter,
+}: {
+  q: QuestionBlock;
+  answers: Record<string, string>;
+  setAnswer: (k: string, v: string) => void;
+  markOf: (p: string, i: number) => Marking[];
+  setMenu: (m: WordMenuState | null) => void;
+  readOnly: boolean;
+  askClaude: (context: string, input: string) => void;
+  chapter: PassageBlock;
+}) {
   const icon = ICON_MAP[q.icon];
+  const [versesOpen, setVersesOpen] = useState(true);
+  const pinned = pinnedPassage(chapter, q.verses, `qv-${q.key}`);
+  const side = Boolean(pinned) && versesOpen;
   return (
     <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-5 shadow-sm">
       <p className="mb-1 flex items-center gap-2 text-[11px] font-bold tracking-wide" style={{ color: icon.color }}>
@@ -2362,40 +2422,149 @@ function BlockView({
       {q.helpVerses && (
         <HelpVerses refText={q.helpVerses.ref} verses={q.helpVerses.verses} />
       )}
-      {q.fields ? (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {q.fields.map((f) => (
+      {!pinned && q.versesNote && (
+        <p className="mb-3 text-[11px] font-semibold text-[color:var(--accent)]">📖 {q.versesNote}</p>
+      )}
+      <div className={side ? "lg:grid lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:items-start lg:gap-5" : undefined}>
+        {pinned && (
+          <div
+            className={
+              side
+                ? "mb-3 lg:sticky lg:top-28 lg:mb-0 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto"
+                : "mb-3"
+            }
+          >
+            <button
+              type="button"
+              onClick={() => setVersesOpen((o) => !o)}
+              aria-expanded={versesOpen}
+              className="mb-2 rounded-full border border-[color:var(--accent)]/40 px-3 py-1 text-[11px] font-semibold text-[color:var(--accent)] transition hover:bg-[color:var(--accent)]/10"
+            >
+              📖 הפסוקים לשאלה ({pinned.ref}) {versesOpen ? "▴" : "▾"}
+            </button>
+            {versesOpen && (
+              <InteractivePassage
+                passage={pinned}
+                markOf={markOf}
+                setMenu={setMenu}
+                readOnly={readOnly}
+                compact
+                inline
+                allowMark={false}
+              />
+            )}
+          </div>
+        )}
+        <div>
+          {q.fields ? (
+            <div className={side ? "grid gap-3 sm:grid-cols-2 lg:grid-cols-1" : "grid gap-3 sm:grid-cols-2"}>
+              {q.fields.map((f) => (
+                <FieldWithVerses
+                  key={f.key}
+                  label={f.label}
+                  pinned={pinnedPassage(chapter, f.verses, `qv-${q.key}-${f.key}`)}
+                  value={answers[`${q.key}:${f.key}`] ?? ""}
+                  onChange={(v) => setAnswer(`${q.key}:${f.key}`, v)}
+                  readOnly={readOnly}
+                  markOf={markOf}
+                  setMenu={setMenu}
+                />
+              ))}
+            </div>
+          ) : (
             <FieldArea
-              key={f.key}
-              label={f.label}
-              value={answers[`${q.key}:${f.key}`] ?? ""}
-              onChange={(v) => setAnswer(`${q.key}:${f.key}`, v)}
+              label=""
+              value={answers[q.key] ?? ""}
+              onChange={(v) => setAnswer(q.key, v)}
               readOnly={readOnly}
-              rows={2}
             />
-          ))}
+          )}
+          {!readOnly && (
+            <button
+              onClick={() =>
+                askClaude(
+                  `שאלה במשימה [${q.label}]: ${q.prompt}. מה שנכתב עד כה: ${answers[q.key] ?? "(כלום)"}`,
+                  "לא ברור לי איך לגשת לשאלה"
+                )
+              }
+              className="mt-2 text-[11px] text-[color:var(--accent)] underline-offset-2 hover:underline"
+            >
+              ✨ נתקעתם? עזרה קטנה מקלוד
+            </button>
+          )}
         </div>
-      ) : (
-        <FieldArea
-          label=""
-          value={answers[q.key] ?? ""}
-          onChange={(v) => setAnswer(q.key, v)}
-          readOnly={readOnly}
-        />
-      )}
-      {!readOnly && (
+      </div>
+    </div>
+  );
+}
+
+// The verses a spec names, as a passage block the renderer understands
+// (ref like "ויקרא ט״ז, ד׳, כ״ג–כ״ח"); null when nothing resolves.
+function pinnedPassage(chapter: PassageBlock, spec: string | undefined, key: string): PassageBlock | null {
+  if (!spec?.trim()) return null;
+  const verses = versesForSpec(spec, chapter.verses);
+  if (!verses.length) return null;
+  const nums = parseVerseSpec(spec).nums.filter((n) => n <= chapterLength(chapter.verses));
+  return {
+    type: "passage",
+    key,
+    ref: `${chapterLabel(chapter.ref)}, ${formatVerseNums(nums)}`,
+    verses,
+    sefariaRef: chapter.sefariaRef,
+  };
+}
+
+// An answer field with its own pinned verses behind a small "📖 פסוקים" link;
+// opened, the verses show inside the row and the row takes the full width.
+function FieldWithVerses({
+  label,
+  pinned,
+  value,
+  onChange,
+  readOnly,
+  markOf,
+  setMenu,
+}: {
+  label: string;
+  pinned: PassageBlock | null;
+  value: string;
+  onChange: (v: string) => void;
+  readOnly: boolean;
+  markOf: (p: string, i: number) => Marking[];
+  setMenu: (m: WordMenuState | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!pinned) {
+    return <FieldArea label={label} value={value} onChange={onChange} readOnly={readOnly} rows={2} />;
+  }
+  return (
+    <div className={open ? "sm:col-span-2 lg:col-span-1" : undefined}>
+      <p className="mb-1 flex flex-wrap items-baseline justify-between gap-x-2">
+        <span className="q-text text-xs font-semibold text-[color:var(--primary)]/70">{label}</span>
         <button
-          onClick={() =>
-            askClaude(
-              `שאלה במשימה [${q.label}]: ${q.prompt}. מה שנכתב עד כה: ${answers[q.key] ?? "(כלום)"}`,
-              "לא ברור לי איך לגשת לשאלה"
-            )
-          }
-          className="mt-2 text-[11px] text-[color:var(--accent)] underline-offset-2 hover:underline"
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          title={pinned.ref}
+          className="shrink-0 text-[11px] font-semibold text-[color:var(--accent)] underline-offset-2 hover:underline"
         >
-          ✨ נתקעתם? עזרה קטנה מקלוד
+          📖 {open ? "הסתרת הפסוקים" : "פסוקים"}
         </button>
+      </p>
+      {open && (
+        <div className="mb-2">
+          <InteractivePassage
+            passage={pinned}
+            markOf={markOf}
+            setMenu={setMenu}
+            readOnly={readOnly}
+            compact
+            inline
+            allowMark={false}
+          />
+        </div>
       )}
+      <FieldArea label="" value={value} onChange={onChange} readOnly={readOnly} rows={2} />
     </div>
   );
 }

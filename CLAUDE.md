@@ -65,6 +65,11 @@ Second subtitle: תוכנית בתנ"ך לכיתות ט, תיכון שחרית.
 - `mode: "simple"` — NO Part A (the reading happens in class with a physical Tanach);
   the worksheet only, with the passage as a collapsible reference block on top (audio,
   taamim toggles, no word marking, no question bank). The five ויקרא ט״ז tasks are simple.
+- Pinned verses (issue #9): a question's `verses` (and a field's `verses`) is a Hebrew spec
+  of the main chapter ("ד׳, כ״ג–כ״ד, ל״ב", lib/verse-spec.ts) shown in an open box beside the
+  question (sticky on wide screens); `versesNote` replaces the box with one line. Teacher
+  overrides live in the worksheet edits (`verses`, key "q" / "q:field"), editable in
+  WorksheetEditor and via edit_unit_texts `verses`.
 - Verse text with taamim lives in content/tasks/vayikra-16-verses.ts (Sefaria, the Name
   written ה׳ keeping its taam).
 

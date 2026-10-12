@@ -79,6 +79,12 @@ export default async function DashboardTaskPage({
           👀 צפייה במשימה כפי שהכיתה רואה אותה ←
         </Link>
         <Link
+          href={`/dashboard/content/${task.content_ref}`}
+          className="text-sm font-semibold text-[color:var(--primary)] underline-offset-2 hover:underline"
+        >
+          ✏️ עריכת השאלות והפסוקים
+        </Link>
+        <Link
           href={`/dashboard/class-board/${taskId}`}
           target="_blank"
           className="rounded-full bg-[color:var(--primary)] px-4 py-1.5 text-sm font-bold text-white shadow transition hover:scale-[1.02]"

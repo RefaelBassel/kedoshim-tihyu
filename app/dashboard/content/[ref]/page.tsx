@@ -7,6 +7,7 @@ import { getOverrides, applyOverrides, EMPTY_EDITS, EMPTY_UNIT } from "@/lib/con
 import { db } from "@/lib/db";
 import WorksheetEditor from "@/components/task/worksheet-editor";
 import { ReviewEditor } from "@/components/dashboard/unit-text-editors";
+import { chapterLabel, chapterLength } from "@/lib/verse-spec";
 
 // One unit, all its teacher-owned content on one page: the worksheet
 // editor (every section), the discussion question and the review deck.
@@ -73,6 +74,7 @@ export default async function ContentEditPage({
             sections={reg.content.sections}
             edits={ov.worksheet ?? EMPTY_EDITS}
             unitEdits={ov.unit ?? EMPTY_UNIT}
+            chapter={{ label: chapterLabel(reg.mainPassage.ref), max: chapterLength(reg.mainPassage.verses) }}
             unitMeta={{
               title: reg.content.title,
               subtitle: reg.content.subtitle,

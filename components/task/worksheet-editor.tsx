@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { TaskSection, QuestionBlock } from "@/content/tasks/types";
 import type { WorksheetEdits, UnitEdits } from "@/lib/content-overrides";
 import SaveButton from "@/components/save-button";
+import { formatVerseNums, parseVerseSpec } from "@/lib/verse-spec";
 
 // The teacher's in-place editor for a unit's worksheet — everything on it
 // is text she owns: the unit's title line (on the hub), each section's
@@ -20,6 +21,7 @@ export default function WorksheetEditor({
   edits,
   unitEdits,
   unitMeta,
+  chapter,
   onClose,
 }: {
   contentRef: string;
@@ -27,6 +29,8 @@ export default function WorksheetEditor({
   onlySection?: string; // limit the editor to one section key
   edits: WorksheetEdits;
   unitEdits: UnitEdits;
+  // the unit's main chapter ("ויקרא ט״ז", 34 verses) — for the verse ranges
+  chapter: { label: string; max: number };
   // the unit's title line — edited only on the hub (when the whole unit is shown)
   unitMeta?: { title: string; subtitle?: string; readingIntro?: string };
   onClose?: () => void;
@@ -37,6 +41,8 @@ export default function WorksheetEditor({
   const [extra, setExtra] = useState(edits.extra.map((e) => ({ ...e })));
   const [secEdits, setSecEdits] = useState<UnitEdits["sections"]>({ ...unitEdits.sections });
   const [blockEdits, setBlockEdits] = useState<UnitEdits["blocks"]>({ ...unitEdits.blocks });
+  // verse ranges pinned to questions ("q") and fields ("q:field")
+  const [verses, setVerses] = useState<Record<string, string>>({ ...(edits.verses ?? {}) });
   const [meta, setMeta] = useState({
     title: unitEdits.title ?? "",
     subtitle: unitEdits.subtitle ?? "",
@@ -51,6 +57,7 @@ export default function WorksheetEditor({
       s: secEdits,
       b: blockEdits,
       m: meta,
+      v: verses,
     });
   const [saved, setSaved] = useState(() =>
     JSON.stringify({
@@ -60,6 +67,7 @@ export default function WorksheetEditor({
       s: unitEdits.sections,
       b: unitEdits.blocks,
       m: { title: unitEdits.title ?? "", subtitle: unitEdits.subtitle ?? "", readingIntro: unitEdits.readingIntro ?? "" },
+      v: edits.verses ?? {},
     })
   );
   const current = snapshot();
@@ -79,10 +87,15 @@ export default function WorksheetEditor({
   };
 
   const save = async () => {
+    for (const spec of Object.values(verses)) {
+      const err = parseVerseSpec(spec, chapter.max).error;
+      if (err) throw new Error(`טווח פסוקים לא תקין: ${err}`);
+    }
     const ws: WorksheetEdits = {
       hidden: [...hidden],
       prompts: Object.fromEntries(Object.entries(prompts).filter(([, v]) => v.trim())),
       extra: extra.filter((e) => e.prompt.trim()),
+      verses,
     };
     const unit: UnitEdits = {
       sections: secEdits,
@@ -96,6 +109,7 @@ export default function WorksheetEditor({
     setHidden(new Set(v.hidden));
     setPrompts(v.prompts);
     setExtra(v.extra);
+    setVerses(v.verses ?? {});
     setSecEdits(u.sections);
     setBlockEdits(u.blocks);
     setMeta({ title: u.title ?? "", subtitle: u.subtitle ?? "", readingIntro: u.readingIntro ?? "" });
@@ -107,6 +121,7 @@ export default function WorksheetEditor({
         s: u.sections,
         b: u.blocks,
         m: { title: u.title ?? "", subtitle: u.subtitle ?? "", readingIntro: u.readingIntro ?? "" },
+        v: v.verses ?? {},
       })
     );
     router.refresh();
@@ -123,6 +138,44 @@ export default function WorksheetEditor({
     setSecEdits((s) => ({ ...s, [key]: { ...(s[key] ?? {}), ...patch } }));
   const setBlock = (key: string, patch: BlockEdit) =>
     setBlockEdits((b) => ({ ...b, [key]: { ...(b[key] ?? {}), ...patch } }));
+
+  // A verse-range input (her edit, else the file's range) with a live check:
+  // the canonical range in green, or what is wrong in red. Called as a
+  // function, not a component, so typing keeps the focus.
+  const verseInput = (key: string, original: string | undefined, label: string) => {
+    const value = verses[key] ?? original ?? "";
+    const parsed = parseVerseSpec(value, chapter.max);
+    const changed = verses[key] != null && verses[key] !== (original ?? "");
+    return (
+      <div key={key} className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <label className="flex min-w-0 flex-1 items-center gap-2 text-[10px] font-semibold text-[color:var(--primary)]/60">
+          <span className="max-w-[45%] shrink-0 truncate" title={label}>📖 {label}</span>
+          <input
+            value={value}
+            onChange={(e) => setVerses((v) => ({ ...v, [key]: e.target.value }))}
+            placeholder="בלי פסוקים · למשל ט״ז–כ׳ או ד׳, כ״ג–כ״ד, ל״ב"
+            className="min-w-0 flex-1 rounded-lg border border-[color:var(--border)] bg-[color:var(--background)] px-2 py-1 text-xs font-normal text-[color:var(--foreground)] outline-none focus:border-[color:var(--accent)]"
+          />
+        </label>
+        {parsed.error ? (
+          <span className="text-[10px] font-semibold text-[color:var(--danger)]">⚠ {parsed.error}</span>
+        ) : parsed.nums.length > 0 ? (
+          <span className="text-[10px] font-semibold text-[color:var(--success)]">
+            ✓ {chapter.label}, {formatVerseNums(parsed.nums)}
+          </span>
+        ) : null}
+        {changed && (
+          <button
+            type="button"
+            onClick={() => setVerses((v) => { const n = { ...v }; delete n[key]; return n; })}
+            className="text-[10px] font-semibold text-[color:var(--primary)]/50 hover:text-[color:var(--accent)]"
+          >
+            ↺ כמו במקור
+          </button>
+        )}
+      </div>
+    );
+  };
 
   const Field = ({
     label,
@@ -243,10 +296,14 @@ export default function WorksheetEditor({
                             ↺ לנוסח המקורי של השאלה הזו
                           </button>
                         )}
+                        {!off && verseInput(q.key, q.verses, "פסוקים לשאלה")}
                         {q.fields && q.fields.length > 0 && !off && (
-                          <p className="mt-1 text-[10px] text-[color:var(--primary)]/45">
-                            לשאלה יש {q.fields.length} שדות תשובה ({q.fields.map((f) => f.label).join(" · ")}) — הם נשארים.
-                          </p>
+                          <div className="mt-2 rounded-lg bg-[color:var(--background)] px-2 py-1.5">
+                            <p className="text-[10px] text-[color:var(--primary)]/45">
+                              לשאלה יש {q.fields.length} שדות תשובה — הם נשארים. לכל שדה אפשר להצמיד פסוקים משלו (קישור ״📖 פסוקים״ ליד השדה):
+                            </p>
+                            {q.fields.map((f) => verseInput(`${q.key}:${f.key}`, f.verses, f.label))}
+                          </div>
                         )}
                       </li>
                     );
@@ -306,6 +363,7 @@ export default function WorksheetEditor({
                       placeholder="נוסח השאלה…"
                       className="w-full rounded-lg border border-[color:var(--border)] bg-[color:var(--card)] px-3 py-2 text-sm leading-6 outline-none focus:border-[color:var(--accent)]"
                     />
+                    {verseInput(e.key, undefined, "פסוקים לשאלה")}
                   </li>
                 ))}
               </ul>

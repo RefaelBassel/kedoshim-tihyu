@@ -3,6 +3,7 @@
 // main passage actually carries verses, and unit/order pairs are consistent.
 // Run: npx tsx scripts/check-content.mts
 import { TASK_REGISTRY } from "../content/tasks/registry";
+import { chapterLength, parseVerseSpec, versesForSpec } from "../lib/verse-spec";
 
 let problems = 0;
 const say = (msg: string) => {
@@ -28,6 +29,14 @@ for (const [key, reg] of Object.entries(TASK_REGISTRY)) {
           fk.add(f.key);
         }
         if (b.helpVerses && !b.helpVerses.verses.length) say(`${key}/${b.key}: empty helpVerses`);
+        const max = chapterLength(reg.mainPassage.verses);
+        for (const [where, spec] of [[b.key, b.verses], ...(b.fields ?? []).map((f) => [`${b.key}:${f.key}`, f.verses])]) {
+          if (!spec) continue;
+          const p = parseVerseSpec(spec, max);
+          if (p.error) say(`${key}/${where}: verses "${spec}" — ${p.error}`);
+          else if (versesForSpec(spec, reg.mainPassage.verses).length !== p.nums.length)
+            say(`${key}/${where}: verses "${spec}" are not all in the main passage`);
+        }
         if (!b.prompt.trim()) say(`${key}/${b.key}: empty prompt`);
       }
     }

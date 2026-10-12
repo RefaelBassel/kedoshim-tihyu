@@ -15,6 +15,7 @@ import {
   type WorksheetEdits,
 } from "./content-overrides";
 import { markDoneUpTo, setUnitDone, unitsOverview, getPlan } from "./lesson-plan";
+import { chapterLength, formatVerseNums, normalizeVerseSpec, parseVerseSpec } from "./verse-spec";
 import {
   allTasksWithStats,
   cancelTaskAssignment,
@@ -243,7 +244,7 @@ async function unitSnapshot(ref: string) {
       title: s.title,
       minutes: s.minutes ?? null,
       blocks: s.blocks.map((b) => {
-        if (b.type === "question") return { key: b.key, type: b.type, label: b.label, prompt: b.prompt, helper: b.helper ?? null, fields: b.fields ?? null, minWords: b.minWords ?? null };
+        if (b.type === "question") return { key: b.key, type: b.type, label: b.label, prompt: b.prompt, helper: b.helper ?? null, fields: b.fields ?? null, minWords: b.minWords ?? null, verses: b.verses ?? null };
         if (b.type === "intro") return { key: b.key, type: b.type, title: b.title ?? null, body: b.body };
         if (b.type === "source") return { key: b.key, type: b.type, title: b.title, text: b.text };
         if (b.type === "case") return { key: b.key, type: b.type, title: (b as { title?: string }).title ?? null, body: (b as { body?: string }).body ?? null };
@@ -286,7 +287,7 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "get_unit",
-    description: "The full current text of one unit as students see it (after the teacher's edits): title, subtitle, reading intro, review deck points, discussion question + teacher note, every section with its blocks (questions have key/label/prompt/helper/fields). Always call this before proposing a text edit, and quote the current text in the proposal.",
+    description: "The full current text of one unit as students see it (after the teacher's edits): title, subtitle, reading intro, review deck points, discussion question + teacher note, every section with its blocks (questions have key/label/prompt/helper/fields, and `verses` — the verses pinned beside the question; a field may carry its own `verses`). Always call this before proposing a text edit, and quote the current text in the proposal.",
     input_schema: { type: "object", properties: { ref: { type: "string", description: "the unit's content ref, e.g. nedava-1" } }, required: ["ref"], additionalProperties: false },
   },
   {
@@ -384,7 +385,7 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "edit_unit_texts",
-    description: "Change texts of a unit in place: title/subtitle/readingIntro, question prompts (by question key), hide or unhide questions, add a teacher question to a section, section titles/minutes, intro/source/case texts (by block key). Only pass what changes. Each call is ONE proposal the teacher confirms.",
+    description: "Change texts of a unit in place: title/subtitle/readingIntro, question prompts (by question key), hide or unhide questions, add a teacher question to a section, section titles/minutes, intro/source/case texts (by block key), and the verses pinned next to a question or to one of its fields (`verses`, shown to students in a box beside the question). Only pass what changes. Each call is ONE proposal the teacher confirms.",
     input_schema: {
       type: "object",
       properties: {
@@ -398,6 +399,7 @@ export const TOOLS: Anthropic.Tool[] = [
         extra: { type: "array", items: { type: "object", properties: { sectionKey: { type: "string" }, prompt: { type: "string" }, label: { type: "string" } }, required: ["sectionKey", "prompt"], additionalProperties: false }, description: "new questions to append to a section" },
         sections: { type: "object", description: "section key -> {title?, minutes?}", additionalProperties: { type: "object", properties: { title: { type: "string" }, minutes: { type: "integer" } }, additionalProperties: false } },
         blocks: { type: "object", description: "block key -> {title?, body?, text?, caption?}", additionalProperties: { type: "object", properties: { title: { type: "string" }, body: { type: "string" }, text: { type: "string" }, caption: { type: "string" } }, additionalProperties: false } },
+        verses: { type: "object", description: "\"question-key\" or \"question-key:field-key\" -> verses of the unit's main chapter in Hebrew numerals, e.g. \"ט״ז–כ׳\" or \"ד׳, כ״ג–כ״ד, ל״ב\"; \"\" removes the verses", additionalProperties: { type: "string" } },
       },
       required: ["ref"],
       additionalProperties: false,
@@ -666,6 +668,19 @@ async function buildProposal(name: string, input: Record<string, unknown>): Prom
         const b = findQ(k);
         for (const [f, t] of Object.entries(v)) changes.push({ what: `${k} · ${f}`, before: b ? String((b as Record<string, unknown>)[f] ?? "") : null, after: str(t, 4000) });
       }
+      const max = chapterLength(TASK_REGISTRY[ref].mainPassage.verses);
+      for (const [k, v] of Object.entries((input.verses as Record<string, string>) ?? {})) {
+        const [qKey, fKey] = k.split(":");
+        const q = findQ(qKey);
+        if (!q || q.type !== "question") return { error: `no question with key ${qKey}` };
+        const fields = (q.fields as { key: string; label: string; verses?: string }[] | null) ?? [];
+        const field = fKey ? fields.find((f) => f.key === fKey) : null;
+        if (fKey && !field) return { error: `question ${qKey} has no field ${fKey}` };
+        const parsed = parseVerseSpec(str(v, 300), max);
+        if (parsed.error) return { error: `verses for ${k}: ${parsed.error}` };
+        const before = fKey ? field?.verses : (q.verses as string | null);
+        changes.push({ what: `פסוקים ל${fKey ? `שדה ״${field!.label}״` : `שאלה ${qKey} (${q.label})`}`, before: before || "בלי פסוקים", after: parsed.nums.length ? formatVerseNums(parsed.nums) : "בלי פסוקים" });
+      }
       if (changes.length === 0) return { error: "nothing to change" };
       return { summary: `עריכת טקסטים ביחידה ״${snap.title}״ (${changes.length} שינויים)`, preview: { unit: snap.title, changes } };
     }
@@ -804,6 +819,16 @@ export async function applyAction(actionId: number, userId: number): Promise<Act
         const ov = await getOverrides(ref);
         undo = { worksheet: ov.worksheet ?? null, unit: ov.unit ?? null };
         const ws: WorksheetEdits = { ...EMPTY_EDITS, ...(ov.worksheet ?? {}), hidden: [...(ov.worksheet?.hidden ?? [])], prompts: { ...(ov.worksheet?.prompts ?? {}) }, extra: [...(ov.worksheet?.extra ?? [])] };
+        if (input.verses && typeof input.verses === "object") {
+          const max = chapterLength(TASK_REGISTRY[ref].mainPassage.verses);
+          const verses = { ...(ws.verses ?? {}) };
+          for (const [k, v] of Object.entries(input.verses as Record<string, string>)) {
+            const spec = normalizeVerseSpec(str(v, 300), max);
+            if (spec == null) throw new Error(`טווח פסוקים לא תקין: ${str(v, 60)}`);
+            verses[str(k, 160)] = spec;
+          }
+          ws.verses = verses;
+        }
         for (const [k, v] of Object.entries((input.prompts as Record<string, string>) ?? {})) ws.prompts[k] = str(v, 2000);
         for (const k of (input.hide as string[]) ?? []) if (!ws.hidden.includes(k)) ws.hidden.push(k);
         for (const k of (input.unhide as string[]) ?? []) ws.hidden = ws.hidden.filter((x) => x !== k);
@@ -1135,6 +1160,7 @@ const SYSTEM = `אתה קלוד — העוזר של המורה באתר "${SITE.
 - כלי שינוי (edit_unit_texts, edit_review, edit_discussion, reset_unit_edits, publish_unit, set_due_date, cancel_task, republish_task, mark_unit, mark_done_up_to, account_action, send_message, edit_exam, edit_exam_prep, request_code_change) מבצעים מיד, בלי שום אישור — זה צ׳אט רגיל: היא כותבת, אתה עושה, ומספר במשפט-שניים מה בדיוק שונה (ציטוט קצר של הנוסח החדש כשזה טקסט). אל תשאל "האם לבצע?" ואל תציג אפשרויות לבחירה — רק אם הבקשה באמת דו-משמעית, שאל שאלה אחת קצרה. כל שינוי ניתן לביטול עם undo_change כשהיא מבקשת לבטל / להחזיר.
 - מבחנים: המבחן גלוי למורה בלבד — לעולם לא לתלמידים. לפני edit_exam או edit_exam_prep — תמיד get_exam קודם (מזהי השאלות, הנוסח והניקוד הנוכחיים). כשמשנים ניקוד — אמור/אמרי מה הסכום החדש. דף ההכנה מוסתר עד שהיא מבקשת לפרסם (publish=true); שאלות המבחן עצמן לא נכנסות לדף ההכנה.
 - לפני עריכת טקסט ביחידה — תמיד get_unit קודם, כדי לערוך את הנוסח הנוכחי ולהשתמש במפתחות (key) הנכונים של השאלות והבלוקים.
+- הפסוקים שמוצגים ליד שאלה (או ליד שדה בתוך שאלה) נערכים ב-edit_unit_texts דרך verses: מפתח "q-key" או "q-key:field-key", וערך כמו "ט״ז–כ׳" או "ד׳, כ״ג–כ״ד, ל״ב" (מספרי פסוקים בפרק הראשי של היחידה); "" מסיר את הפסוקים.
 - כשהבקשה דורשת שינוי באתר עצמו (כפתור, מסך, התנהגות, עיצוב, דבר שאין לו כלי) — השתמש ב-request_code_change עם כותרת קצרה ומפרט מלא בעברית: איפה באתר, מה בדיוק, למה, מה התלמידים יראו ומה המורה. הבקשה נבנית ועולה לאתר אוטומטית (בדרך כלל תוך 10–30 דקות); היא תראה את הסטטוס בכרטיס. דווח לה בדיוק מה הכלי החזיר: אם status=open — "נשלחה לבנייה האוטומטית" עם הקישור; אם status=queued — "נרשמה וממתינה בתור, תישלח מעצמה כשהבקשה הקודמת תסתיים"; אם יש note עם שגיאה — אמור שהשליחה נכשלה ושהמערכת תנסה שוב מעצמה. אין "מפתחים" ואין מתווך אנושי — אל תכתוב שאתה "מעביר למפתחים"; זה צינור אוטומטי שאתה עצמך מפעיל. אם לא ברור מה בדיוק היא רוצה — שאל שאלה אחת ממוקדת לפני שאתה שולח.
 - שאלות על "איך עושים X באתר" — ענה ישירות מהידע שלך על האתר (למטה).
 
