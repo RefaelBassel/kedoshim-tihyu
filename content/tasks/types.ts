@@ -65,11 +65,20 @@ export interface QuestionBlock {
   label: string; // section label shown above the prompt
   prompt: string;
   helper?: string; // small helper line (e.g. עזר: השתמשו במילת שאלה...)
-  fields?: { key: string; label: string }[]; // multi-field questions (מתי/היכן)
+  // multi-field questions (מתי/היכן); a field may pin its own verses (a
+  // verse spec like `verses` below) behind a small "📖 פסוקים" link
+  fields?: { key: string; label: string; verses?: string }[];
   minWords?: number; // soft minimum for progress counting
   // Verses behind a "📖 הפסוקים" toggle right next to the question, so
   // analysis questions are answered from the text — never from memory.
   helpVerses?: { ref: string; verses: PassageVerse[] };
+  // Verses of the unit's main chapter pinned to the question, as a spec in
+  // Hebrew numerals ("ט״ז–כ׳", "ד׳, כ״ג–כ״ד, ל״ב" — lib/verse-spec.ts). Shown
+  // in an open box under the prompt, so long worksheets need no scrolling up
+  // to the chapter. The teacher edits it (worksheet edits, `verses`).
+  verses?: string;
+  // One line in place of the box, when the question draws on the whole chapter.
+  versesNote?: string;
 }
 
 export interface CaseBlock {

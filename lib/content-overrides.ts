@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { normalizeVerseSpec } from "./verse-spec";
 import type {
   TaskContent,
   TaskSection,
@@ -26,6 +27,9 @@ export interface WorksheetEdits {
   hidden: string[]; // question keys removed from the worksheet
   prompts: Record<string, string>; // question key -> new prompt text
   extra: ExtraQuestion[]; // teacher-added questions, appended to their section
+  // verses pinned to a question ("q-key") or to one of its fields
+  // ("q-key:field-key"), as a verse spec (lib/verse-spec.ts); "" = none
+  verses?: Record<string, string>;
 }
 // Everything else on the unit page that is text: the unit's title line, the
 // section headers and the non-question blocks (intro / case / source / art
@@ -125,18 +129,38 @@ export function applyWorksheetEdits(
         b.type === "question" && edits.prompts[b.key]
           ? { ...b, prompt: edits.prompts[b.key] }
           : b
-      );
+      )
+      .map((b) => (b.type === "question" ? applyVerseEdits(b, edits.verses) : b));
     const extras: QuestionBlock[] = edits.extra
       .filter((e) => e.sectionKey === sec.key && !hidden.has(e.key))
-      .map((e) => ({
-        type: "question",
-        key: e.key,
-        icon: e.icon ?? "thinking",
-        label: e.label ?? "שאלה של המורה",
-        prompt: edits.prompts[e.key] ?? e.prompt,
-      }));
+      .map((e) =>
+        applyVerseEdits(
+          {
+            type: "question",
+            key: e.key,
+            icon: e.icon ?? "thinking",
+            label: e.label ?? "שאלה של המורה",
+            prompt: edits.prompts[e.key] ?? e.prompt,
+          },
+          edits.verses
+        )
+      );
     return { ...sec, blocks: [...blocks, ...extras] };
   });
+}
+
+function applyVerseEdits(q: QuestionBlock, verses: Record<string, string> | undefined): QuestionBlock {
+  if (!verses) return q;
+  const own = verses[q.key];
+  const fields = q.fields?.map((f) => {
+    const v = verses[`${q.key}:${f.key}`];
+    return v == null ? f : { ...f, verses: v || undefined };
+  });
+  return {
+    ...q,
+    ...(own != null ? { verses: own || undefined } : {}),
+    ...(fields ? { fields } : {}),
+  };
 }
 
 export function applyUnitEdits(sections: TaskSection[], u: UnitEdits | undefined): TaskSection[] {
@@ -221,7 +245,18 @@ export function sanitizeField(field: EditableField, raw: unknown): unknown | nul
           });
         }
       }
-      return { hidden, prompts, extra } satisfies WorksheetEdits;
+      const out: WorksheetEdits = { hidden, prompts, extra };
+      if (o.verses && typeof o.verses === "object") {
+        const verses: Record<string, string> = {};
+        for (const [k, v] of Object.entries(o.verses as Record<string, unknown>)) {
+          const key = str(k, 160);
+          if (!key || typeof v !== "string") continue;
+          const spec = normalizeVerseSpec(str(v, 300));
+          if (spec != null) verses[key] = spec;
+        }
+        if (Object.keys(verses).length) out.verses = verses;
+      }
+      return out;
     }
     case "unit": {
       const sections: UnitEdits["sections"] = {};
