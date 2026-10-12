@@ -19,6 +19,16 @@ export default async function LessonPage() {
       subtitle="מגלגלים, מסדרים, ▶"
     >
       <div className="mx-auto max-w-4xl">
+        <div className="mb-4 flex justify-center">
+          <a
+            href="/dashboard/slide"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-full border-2 border-[color:var(--primary)]/50 px-5 py-2 text-sm font-bold text-[color:var(--primary)] transition hover:bg-[color:var(--primary)]/10"
+          >
+            🪧 שקופית כללים ↗
+          </a>
+        </div>
         <LessonPlanner />
       </div>
     </PageShell>
