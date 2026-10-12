@@ -26,19 +26,31 @@ export async function ensureApprovalColumns() {
   await db().execute(
     "UPDATE users SET approved_at = COALESCE(approved_at, created_at) WHERE role = 'teacher'"
   );
+  // merged accounts (lib/account-merge.ts): the merged_into column, then the
+  // one-time merges the teacher asked for (each runs once)
+  const { ensureMergeTables, runSeedMerges } = await import("./account-merge");
+  await ensureMergeTables();
   columnsReady = true;
+  try {
+    await runSeedMerges();
+  } catch (err) {
+    console.error("[approval] seed merges failed:", err);
+  }
 }
 
 export type AccountState = "approved" | "pending" | "blocked";
 
-export async function accountStateFor(email: string): Promise<AccountState | null> {
+// "merged": the account was merged into another one — auth.ts switches the
+// session to the kept account.
+export async function accountStateFor(email: string): Promise<AccountState | "merged" | null> {
   await ensureApprovalColumns();
   const res = await db().execute({
-    sql: "SELECT role, approved_at, blocked_at FROM users WHERE email = ?",
+    sql: "SELECT role, approved_at, blocked_at, merged_into FROM users WHERE email = ?",
     args: [email.toLowerCase()],
   });
   const r = res.rows[0];
   if (!r) return null;
+  if (r.merged_into != null) return "merged";
   if (r.blocked_at != null) return "blocked";
   if (r.role === "teacher" || r.approved_at != null) return "approved";
   return "pending";
@@ -173,6 +185,7 @@ export async function listAccounts(): Promise<AccountRow[]> {
                  u.onboarded_at, u.approved_at, u.blocked_at,
                  EXISTS(SELECT 1 FROM task_answers a WHERE a.user_id = u.id) AS has_work
           FROM users u
+          WHERE u.merged_into IS NULL
           ORDER BY (u.approved_at IS NULL AND u.blocked_at IS NULL) DESC, u.created_at DESC`,
     args: [],
   });

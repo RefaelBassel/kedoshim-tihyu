@@ -82,9 +82,10 @@ export const { handlers, auth, signIn, signOut, unstable_update: updateSession }
           }
         } else {
           // the whitelist can promote, never demote: a teacher marked from the
-          // roster (another Google address of hers) stays a teacher
+          // roster (another Google address of hers) stays a teacher; a merged
+          // account stays merged (jwt() follows it to the kept account)
           await db().execute({
-            sql: "UPDATE users SET google_id = ?, role = CASE WHEN role = 'teacher' THEN 'teacher' ELSE ? END, last_seen_at = ? WHERE email = ?",
+            sql: "UPDATE users SET google_id = ?, role = CASE WHEN role IN ('teacher', 'merged') THEN role ELSE ? END, last_seen_at = ? WHERE email = ?",
             args: [googleId, role, now, email],
           });
         }
@@ -104,26 +105,34 @@ export const { handlers, auth, signIn, signOut, unstable_update: updateSession }
         return token;
       }
       // On first sign-in (user present), load our internal row.
+      // Loads our internal row into the token. An email whose account was
+      // merged into another (lib/account-merge.ts) loads the kept account.
+      const loadRow = async (email: string) => {
+        const { ensureApprovalColumns } = await import("@/lib/approval");
+        await ensureApprovalColumns();
+        const { resolveMergedEmail } = await import("@/lib/account-merge");
+        const resolved = await resolveMergedEmail(email);
+        token.email = resolved;
+        const row = await db().execute({
+          sql: "SELECT id, role, full_name, address_form, onboarded_at, approved_at, blocked_at FROM users WHERE email = ?",
+          args: [resolved],
+        });
+        const r = row.rows[0];
+        if (r) {
+          token.userId = r.id as number;
+          token.role = r.role as string;
+          token.fullName = (r.full_name as string | null) ?? null;
+          token.addressForm = (r.address_form as string | null) ?? null;
+          token.onboarded = r.onboarded_at != null;
+          token.blocked = r.blocked_at != null;
+          token.approved =
+            !token.blocked && (r.role === "teacher" || r.approved_at != null);
+        }
+      };
       if (user?.email) {
         token.email = user.email.toLowerCase();
         try {
-          const { ensureApprovalColumns } = await import("@/lib/approval");
-          await ensureApprovalColumns();
-          const row = await db().execute({
-            sql: "SELECT id, role, full_name, address_form, onboarded_at, approved_at, blocked_at FROM users WHERE email = ?",
-            args: [user.email.toLowerCase()],
-          });
-          const r = row.rows[0];
-          if (r) {
-            token.userId = r.id as number;
-            token.role = r.role as string;
-            token.fullName = (r.full_name as string | null) ?? null;
-            token.addressForm = (r.address_form as string | null) ?? null;
-            token.onboarded = r.onboarded_at != null;
-            token.blocked = r.blocked_at != null;
-            token.approved =
-              !token.blocked && (r.role === "teacher" || r.approved_at != null);
-          }
+          await loadRow(user.email.toLowerCase());
         } catch (err) {
           console.error("[auth.jwt] DB load failed:", err);
         }
@@ -134,9 +143,13 @@ export const { handlers, auth, signIn, signOut, unstable_update: updateSession }
         try {
           const { accountStateFor } = await import("@/lib/approval");
           const state = await accountStateFor(String(token.email));
-          token.approved = state === "approved";
-          token.blocked = state === "blocked";
-          if (state === null) token.approved = false; // removed by a teacher
+          if (state === "merged") {
+            await loadRow(String(token.email)); // now the kept account
+          } else {
+            token.approved = state === "approved";
+            token.blocked = state === "blocked";
+            if (state === null) token.approved = false; // removed by a teacher
+          }
         } catch (err) {
           console.error("[auth.jwt] approval re-check failed:", err);
         }
@@ -149,8 +162,13 @@ export const { handlers, auth, signIn, signOut, unstable_update: updateSession }
           try {
             const { accountStateFor } = await import("@/lib/approval");
             const state = await accountStateFor(String(token.email));
-            token.approved = state === "approved";
-            token.blocked = state === "blocked";
+            if (state === "merged") {
+              // merged by a teacher while signed in: the session moves to the kept account
+              await loadRow(String(token.email));
+            } else {
+              token.approved = state === "approved";
+              token.blocked = state === "blocked";
+            }
             token.checkedAt = nowSec;
           } catch {
             /* keep the current token on a transient DB error */

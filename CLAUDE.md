@@ -153,3 +153,14 @@ a projected board never contains teacher input; the control is a separate page.
   Linked from the lesson page and the dashboard. Stored as one row in `class_slide`
   (lib/class-slide.ts); edited in place (corner ✏️ → side drawer, live preview) or by the teacher
   chat (get_class_slide / edit_class_slide, undoable).
+
+## Merging duplicate accounts (issue #15)
+- lib/account-merge.ts: a student with two Google accounts → "איחוד עם חשבון אחר…" on every
+  student row in `/dashboard/students` (pick the account that stays, summary, confirm), or the chat's
+  `account_action` merge (keepUserId + userId; not undoable). All work moves to the kept account; a
+  task worked in both keeps the more advanced version (submitted, then progress %), the other goes to
+  `account_merge_archive` (never deleted); exam-prep items likewise (solved, then attempts).
+- The merged row stays with role 'merged' + merged_into: out of every list, and signing in with its
+  email lands in the kept account (auth.ts jwt follows merged_into, also for an open session).
+- One-time seeds (SEED_MERGES, run once per seed_key from ensureApprovalColumns, only if the ids still
+  carry the expected emails): זוהר גינתי 16→27, נועם רחמים 10→23.
