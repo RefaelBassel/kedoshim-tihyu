@@ -59,6 +59,12 @@ export default async function ExamsDashboardPage() {
                     )}
                   </p>
                 </Link>
+                <Link
+                  href={`/dashboard/exams/${e.id}/pulse`}
+                  className="mt-1.5 me-3 inline-block rounded-full border border-[color:var(--accent)]/60 bg-[color:var(--card)] px-3 py-1 text-xs font-bold text-[color:var(--accent)] transition hover:bg-[color:var(--accent)]/10"
+                >
+                  💓 דופק כיתה
+                </Link>
               </li>
               );
             })}

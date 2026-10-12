@@ -10,7 +10,11 @@ import {
 import { allStudents } from "@/lib/tasks";
 import { isStudentMode } from "@/lib/student-mode";
 
-export default async function MessagesPage() {
+export default async function MessagesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ to?: string; draft?: string }>;
+}) {
   const session = await auth();
   const user = session?.user;
   if (!user) redirect("/login");
@@ -30,6 +34,9 @@ export default async function MessagesPage() {
   const studentMode = user.role === "teacher" && (await isStudentMode());
   const isTeacher = user.role === "teacher" && !studentMode;
 
+  // a teacher may arrive with a ready message for one student (the exam
+  // pulse's reminder) — it lands in the box for editing, never sent by itself
+  const sp = await searchParams;
   const contacts: Contact[] = [];
   try {
     const threads = await loadThreadsFor(userId);
@@ -83,7 +90,13 @@ export default async function MessagesPage() {
       }
     >
       <div className="mx-auto max-w-4xl">
-        <Chat contacts={contacts} meId={userId} meName={meName} />
+        <Chat
+          contacts={contacts}
+          meId={userId}
+          meName={meName}
+          initialActiveId={isTeacher && sp.to ? Number(sp.to) : undefined}
+          initialDraft={isTeacher ? String(sp.draft ?? "").slice(0, 2000) : ""}
+        />
       </div>
     </PageShell>
   );
