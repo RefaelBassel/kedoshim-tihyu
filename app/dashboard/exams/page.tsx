@@ -20,6 +20,12 @@ export default async function ExamsDashboardPage() {
   return (
     <PageShell title="מבחנים" subtitle="מבחנים, מחוונים ודפי הכנה — לעיני המורה בלבד">
       <div className="mx-auto max-w-3xl space-y-6">
+        <Link
+          href="/dashboard/grades/vayikra-16"
+          className="block rounded-2xl border-2 border-[color:var(--accent)]/60 bg-[color:var(--card)] p-4 text-center font-display text-base font-extrabold text-[color:var(--primary)] transition hover:border-[color:var(--accent)]"
+        >
+          📊 ציון ביניים — פרק ט״ז ←
+        </Link>
         {exams.length > 0 && (
           <ul className="space-y-3">
             {exams.map((e) => {

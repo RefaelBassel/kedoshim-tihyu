@@ -164,3 +164,14 @@ a projected board never contains teacher input; the control is a separate page.
   email lands in the kept account (auth.ts jwt follows merged_into, also for an open session).
 - One-time seeds (SEED_MERGES, run once per seed_key from ensureApprovalColumns, only if the ids still
   carry the expected emails): זוהר גינתי 16→27, נועם רחמים 10→23.
+
+## Interim grade (issue #17)
+- `/dashboard/grades/vayikra-16` ("📊 ציון ביניים — פרק ט״ז", teacher only; lib/interim-grades.ts), linked on the
+  dashboard and on /dashboard/exams. Claude checks EVERY answer of every approved student in tasks 1, 2, 6, 9, 10, 11
+  (submitted or not) with the teacher's lenient policy (0 only for empty / contentless / clearly contradicting the
+  verses) plus a one-line note; checks are stored per answer hash (interim_answer_grades), and "בדיקה מחדש" checks only
+  new or changed answers.
+- Task grade = mean of the visible questions. The average covers the tasks she ticks and leaves untouched tasks out
+  (or counts them as 0 — her toggle). Manual overrides per task or per student (✋), CSV export.
+- Nothing reaches students unless she presses "פרסום ציונים": it writes the included task grades to grades.score
+  (approved, one bell, no email) and keeps the previous rows, so "ביטול הפרסום" restores them.

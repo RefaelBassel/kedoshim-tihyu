@@ -114,6 +114,12 @@ export default async function DashboardPage() {
           🧪 מבחנים ודפי הכנה — עריכה, מחוון והדפסה
         </Link>
         <Link
+          href="/dashboard/grades/vayikra-16"
+          className="rounded-full border-2 border-[color:var(--primary)]/50 px-5 py-2 text-sm font-bold text-[color:var(--primary)] transition hover:bg-[color:var(--primary)]/10"
+        >
+          📊 ציון ביניים — פרק ט״ז
+        </Link>
+        <Link
           href="/dashboard/slide"
           className="rounded-full border-2 border-[color:var(--primary)]/50 px-5 py-2 text-sm font-bold text-[color:var(--primary)] transition hover:bg-[color:var(--primary)]/10"
         >
