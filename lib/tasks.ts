@@ -416,6 +416,43 @@ export async function updateTaskDueDate(taskId: number, dueAt: number) {
   });
 }
 
+// ---------- worksheet position (issue #21) ----------
+// One question per screen: the screen the student was on (the question's
+// key, or "summary"), so returning to the task lands where they stopped —
+// on any device. DDL also in migrations/0017_task_steps.sql.
+let stepReady = false;
+async function ensureStepTable() {
+  if (stepReady) return;
+  await db().execute(
+    `CREATE TABLE IF NOT EXISTS task_steps (
+       task_id INTEGER NOT NULL,
+       user_id INTEGER NOT NULL,
+       step_key TEXT NOT NULL,
+       updated_at INTEGER NOT NULL,
+       PRIMARY KEY (task_id, user_id)
+     )`
+  );
+  stepReady = true;
+}
+
+export async function getTaskStep(taskId: number, userId: number): Promise<string | null> {
+  await ensureStepTable();
+  const r = await db().execute({
+    sql: "SELECT step_key FROM task_steps WHERE task_id = ? AND user_id = ?",
+    args: [taskId, userId],
+  });
+  return r.rows[0] ? String(r.rows[0].step_key) : null;
+}
+
+export async function setTaskStep(taskId: number, userId: number, stepKey: string) {
+  await ensureStepTable();
+  await db().execute({
+    sql: `INSERT INTO task_steps (task_id, user_id, step_key, updated_at) VALUES (?, ?, ?, ?)
+          ON CONFLICT(task_id, user_id) DO UPDATE SET step_key = excluded.step_key, updated_at = excluded.updated_at`,
+    args: [taskId, userId, stepKey, now()],
+  });
+}
+
 // ---------- focus mode (מצב מיקוד) ----------
 // Transparent classroom attention tracking: leaving the task window and
 // blocked external pastes are recorded per (task, student). Pedagogy locked

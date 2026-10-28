@@ -12,7 +12,7 @@ const LETTERS: Record<string, number> = {
 };
 
 // "כ״ג" / "כג" / "23" → 23; anything else → null
-function numOf(raw: string): number | null {
+export function numOf(raw: string): number | null {
   const s = raw.replace(/[׳״'"]/g, "").replace(/^פסוק(ים)?\s*/, "").trim();
   if (!s) return null;
   if (/^\d+$/.test(s)) return Number(s) || null;
@@ -28,12 +28,22 @@ function numOf(raw: string): number | null {
 export interface ParsedSpec {
   nums: number[]; // sorted, unique, 1-based
   error?: string; // Hebrew, for the teacher
+  none?: boolean; // deliberately no verses (NO_VERSES)
+}
+
+// A deliberate "no verses box" — turns off the automatic verses a question
+// would get from its wording (lib/auto-verses.ts), e.g. on an orientation
+// question where finding the verse IS the exercise. Stored as "none".
+export const NO_VERSES = "none";
+export function isNoVerses(spec: string | undefined | null): boolean {
+  return /^\s*(none|ללא|בלי|בלי פסוקים|אין)\s*$/i.test(spec ?? "");
 }
 
 // max = the chapter's verse count (omit to check syntax only)
 export function parseVerseSpec(spec: string, max?: number): ParsedSpec {
   const text = spec.trim();
   if (!text) return { nums: [] };
+  if (isNoVerses(text)) return { nums: [], none: true };
   const set = new Set<number>();
   for (const part of text.split(/[,،;]+/)) {
     const p = part.trim();
@@ -67,6 +77,7 @@ export function formatVerseNums(nums: number[]): string {
 // the canonical spelling of a spec, or null when it does not parse
 export function normalizeVerseSpec(spec: string, max?: number): string | null {
   const p = parseVerseSpec(spec, max);
+  if (p.none) return NO_VERSES;
   return p.error ? null : formatVerseNums(p.nums);
 }
 

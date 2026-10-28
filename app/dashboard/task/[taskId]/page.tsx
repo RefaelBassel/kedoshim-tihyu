@@ -76,7 +76,14 @@ export default async function DashboardTaskPage({
           href={`/tasks/${taskId}`}
           className="text-sm font-semibold text-[color:var(--accent)] underline-offset-2 hover:underline"
         >
-          👀 צפייה במשימה כפי שהכיתה רואה אותה ←
+          👀 צפייה במשימה — תצוגה מלאה ←
+        </Link>
+        <Link
+          href={`/tasks/${taskId}?view=student`}
+          className="rounded-full border-2 border-[color:var(--accent)] px-4 py-1.5 text-sm font-bold text-[color:var(--accent)] transition hover:bg-[color:var(--accent)]/10"
+          title="כמו שהתלמידים רואים: שאלה אחת בכל מסך, עם הפסוקים שלה"
+        >
+          📱 תצוגת תלמיד
         </Link>
         <Link
           href={`/dashboard/content/${task.content_ref}`}

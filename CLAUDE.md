@@ -165,6 +165,18 @@ a projected board never contains teacher input; the control is a separate page.
 - One-time seeds (SEED_MERGES, run once per seed_key from ensureApprovalColumns, only if the ids still
   carry the expected emails): זוהר גינתי 16→27, נועם רחמים 10→23.
 
+## One question per screen (issue #21)
+- Students (and the teacher in student mode or with `/tasks/<id>?view=student`, "📱 תצוגת תלמיד" on the task
+  page and on /dashboard/task) work Part B one question per screen (TaskRunner `stepped`): progress "שאלה X מתוך Y",
+  jump dots (answered = green), "עבור ←" / "→ חזרה", ←/→ keys outside fields, never blocking; intro/art/passage/
+  source/case blocks ride with the next question; the last screen = summary + unanswered list + submit. Answers flush
+  on every move; the screen is kept per student in `task_steps` (lib/tasks.ts, /api/tasks/[id]/step) + localStorage.
+  The teacher's /tasks/<id> stays the full worksheet with the editor; the submission page is unchanged.
+- Verses beside each question, open in the student view. Without pinned `verses`, lib/auto-verses.ts (server only)
+  reads "פסוק X" / "פסוקים X–Y" / "פרק ז׳, פסוקים…" in the prompt and shows those verses (any chapter the site has);
+  orientation questions (icon or "מצאו/דפדפו/חפשו") get none, and `verses: "none"` (lib/verse-spec.ts NO_VERSES)
+  turns the box off.
+
 ## Interim grade (issue #17)
 - `/dashboard/grades/vayikra-16` ("📊 ציון ביניים — פרק ט״ז", teacher only; lib/interim-grades.ts), linked on the
   dashboard and on /dashboard/exams. Claude checks EVERY answer of every approved student in tasks 1, 2, 6, 9, 10, 11

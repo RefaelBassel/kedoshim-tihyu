@@ -153,12 +153,14 @@ export default function WorksheetEditor({
           <input
             value={value}
             onChange={(e) => setVerses((v) => ({ ...v, [key]: e.target.value }))}
-            placeholder="בלי פסוקים · למשל ט״ז–כ׳ או ד׳, כ״ג–כ״ד, ל״ב"
+            placeholder="ריק = לפי נוסח השאלה · למשל ט״ז–כ׳ או ד׳, כ״ג–כ״ד · none = בלי"
             className="min-w-0 flex-1 rounded-lg border border-[color:var(--border)] bg-[color:var(--background)] px-2 py-1 text-xs font-normal text-[color:var(--foreground)] outline-none focus:border-[color:var(--accent)]"
           />
         </label>
         {parsed.error ? (
           <span className="text-[10px] font-semibold text-[color:var(--danger)]">⚠ {parsed.error}</span>
+        ) : parsed.none ? (
+          <span className="text-[10px] font-semibold text-[color:var(--success)]">✓ בלי תיבת פסוקים</span>
         ) : parsed.nums.length > 0 ? (
           <span className="text-[10px] font-semibold text-[color:var(--success)]">
             ✓ {chapter.label}, {formatVerseNums(parsed.nums)}
