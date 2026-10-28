@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
+import { setTaskStep } from "@/lib/tasks";
 
 // Teacher-only: wipe the teacher's OWN progress on a task so it can be
 // experienced again from scratch in student mode (answers, markings, banked
@@ -37,5 +38,6 @@ export async function POST(
     sql: "DELETE FROM task_progress WHERE task_id = ? AND user_id = ?",
     args: [taskId, userId],
   });
+  await setTaskStep(taskId, userId, "");
   return NextResponse.json({ ok: true });
 }

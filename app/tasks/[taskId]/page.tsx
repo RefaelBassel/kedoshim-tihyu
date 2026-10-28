@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { auth } from "@/auth";
 import { redirect, notFound } from "next/navigation";
 import TopNav from "@/components/top-nav";
@@ -13,15 +14,19 @@ import {
   getProgress,
   getAnswers,
   getMarkings,
+  getTaskStep,
 } from "@/lib/tasks";
+import { autoVersesFor } from "@/lib/auto-verses";
 import { getTaskContent, countTaskUnits, positionLabel } from "@/content/tasks/registry";
 import { isStudentMode } from "@/lib/student-mode";
 import { formatFullDate } from "@/lib/hebrew";
 
 export default async function TaskPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ taskId: string }>;
+  searchParams: Promise<{ view?: string }>;
 }) {
   const session = await auth();
   const user = session?.user;
@@ -50,7 +55,12 @@ export default async function TaskPage({
   const reg = { ...baseReg, content: applyOverrides(baseReg.content, overrides) };
   const studentMode = isTeacher ? await isStudentMode() : false;
   const canEditContent = isTeacher && !studentMode;
-  const editable = canEditContent
+  // Students work one question per screen (issue #21); the teacher keeps the
+  // full worksheet (with the in-place editor) and can switch to the student
+  // view with ?view=student.
+  const { view } = await searchParams;
+  const studentView = !canEditContent || view === "student";
+  const editable = canEditContent && !studentView
     ? {
         edits: overrides.worksheet ?? EMPTY_EDITS,
         unit: overrides.unit ?? EMPTY_UNIT,
@@ -65,6 +75,7 @@ export default async function TaskPage({
   const progress = guest ? null : await getProgress(taskId, userId);
   const answers = guest ? {} : await getAnswers(taskId, userId);
   const markings = guest ? [] : await getMarkings(taskId, userId);
+  const initialStep = guest ? null : await getTaskStep(taskId, userId);
   // Questions already banked for this task — the question stage acknowledges
   // them ("you already asked X on the way") instead of pretending it's empty.
   const { db } = await import("@/lib/db");
@@ -127,6 +138,24 @@ export default async function TaskPage({
           <p className="mt-2">
             <PrintLinks contentRef={task.content_ref} />
           </p>
+          {canEditContent && (
+            <div className="mt-3 inline-flex rounded-full border border-[color:var(--border)] bg-[color:var(--card)] p-1 text-xs font-bold">
+              <Link
+                href={`/tasks/${taskId}`}
+                aria-current={!studentView ? "page" : undefined}
+                className={`rounded-full px-3 py-1 transition ${!studentView ? "bg-[color:var(--primary)] text-white" : "text-[color:var(--primary)]/70 hover:bg-[color:var(--primary)]/10"}`}
+              >
+                📄 תצוגה מלאה
+              </Link>
+              <Link
+                href={`/tasks/${taskId}?view=student`}
+                aria-current={studentView ? "page" : undefined}
+                className={`rounded-full px-3 py-1 transition ${studentView ? "bg-[color:var(--primary)] text-white" : "text-[color:var(--primary)]/70 hover:bg-[color:var(--primary)]/10"}`}
+              >
+                📱 תצוגת תלמיד
+              </Link>
+            </div>
+          )}
         </div>
 
         <TaskRunner
@@ -145,6 +174,9 @@ export default async function TaskPage({
           dueAt={task.due_at}
           totalUnits={countTaskUnits(reg)}
           editable={editable}
+          stepped={studentView}
+          autoVerses={autoVersesFor(reg.content, reg.mainPassage)}
+          initialStep={initialStep}
         />
       </main>
     </>

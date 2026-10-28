@@ -406,7 +406,7 @@ export const TOOLS: Anthropic.Tool[] = [
         extra: { type: "array", items: { type: "object", properties: { sectionKey: { type: "string" }, prompt: { type: "string" }, label: { type: "string" } }, required: ["sectionKey", "prompt"], additionalProperties: false }, description: "new questions to append to a section" },
         sections: { type: "object", description: "section key -> {title?, minutes?}", additionalProperties: { type: "object", properties: { title: { type: "string" }, minutes: { type: "integer" } }, additionalProperties: false } },
         blocks: { type: "object", description: "block key -> {title?, body?, text?, caption?}", additionalProperties: { type: "object", properties: { title: { type: "string" }, body: { type: "string" }, text: { type: "string" }, caption: { type: "string" } }, additionalProperties: false } },
-        verses: { type: "object", description: "\"question-key\" or \"question-key:field-key\" -> verses of the unit's main chapter in Hebrew numerals, e.g. \"ט״ז–כ׳\" or \"ד׳, כ״ג–כ״ד, ל״ב\"; \"\" removes the verses", additionalProperties: { type: "string" } },
+        verses: { type: "object", description: "\"question-key\" or \"question-key:field-key\" -> verses of the unit's main chapter in Hebrew numerals, e.g. \"ט״ז–כ׳\" or \"ד׳, כ״ג–כ״ד, ל״ב\"; \"\" removes the pinned verses (the question then shows the verses its wording names, automatically); \"none\" shows no verses box at all, even when the wording names verses", additionalProperties: { type: "string" } },
       },
       required: ["ref"],
       additionalProperties: false,
@@ -722,7 +722,7 @@ async function buildProposal(name: string, input: Record<string, unknown>): Prom
         const parsed = parseVerseSpec(str(v, 300), max);
         if (parsed.error) return { error: `verses for ${k}: ${parsed.error}` };
         const before = fKey ? field?.verses : (q.verses as string | null);
-        changes.push({ what: `פסוקים ל${fKey ? `שדה ״${field!.label}״` : `שאלה ${qKey} (${q.label})`}`, before: before || "בלי פסוקים", after: parsed.nums.length ? formatVerseNums(parsed.nums) : "בלי פסוקים" });
+        changes.push({ what: `פסוקים ל${fKey ? `שדה ״${field!.label}״` : `שאלה ${qKey} (${q.label})`}`, before: before === "none" ? "בלי תיבת פסוקים (כבויה)" : before || "בלי פסוקים", after: parsed.none ? "בלי תיבת פסוקים (כבויה)" : parsed.nums.length ? formatVerseNums(parsed.nums) : "בלי פסוקים (אוטומטי לפי הנוסח)" });
       }
       if (changes.length === 0) return { error: "nothing to change" };
       return { summary: `עריכת טקסטים ביחידה ״${snap.title}״ (${changes.length} שינויים)`, preview: { unit: snap.title, changes } };
@@ -1234,7 +1234,7 @@ const SYSTEM = `אתה קלוד — העוזר של המורה באתר "${SITE.
 - מבחנים: המבחן גלוי למורה בלבד — לעולם לא לתלמידים. לפני edit_exam או edit_exam_prep — תמיד get_exam קודם (מזהי השאלות, הנוסח והניקוד הנוכחיים). כשמשנים ניקוד — אמור/אמרי מה הסכום החדש. דף ההכנה מוסתר עד שהיא מבקשת לפרסם (publish=true); שאלות המבחן עצמן לא נכנסות לדף ההכנה.
 - שקופית כללי השיעור (/dashboard/slide, למורה בלבד, מוקרנת בתחילת שיעור): כותרת, שלושה בלוקים — task (📝 המשימה), rules (📏 הכללים), done (🏠 סיימת?) — ושורת סיום. כשהיא מבקשת לעדכן אותה לשיעור הבא — get_class_slide ואז edit_class_slide (lines מחליף את כל השורות של הבלוק).
 - לפני עריכת טקסט ביחידה — תמיד get_unit קודם, כדי לערוך את הנוסח הנוכחי ולהשתמש במפתחות (key) הנכונים של השאלות והבלוקים.
-- הפסוקים שמוצגים ליד שאלה (או ליד שדה בתוך שאלה) נערכים ב-edit_unit_texts דרך verses: מפתח "q-key" או "q-key:field-key", וערך כמו "ט״ז–כ׳" או "ד׳, כ״ג–כ״ד, ל״ב" (מספרי פסוקים בפרק הראשי של היחידה); "" מסיר את הפסוקים.
+- הפסוקים שמוצגים ליד שאלה (או ליד שדה בתוך שאלה) נערכים ב-edit_unit_texts דרך verses: מפתח "q-key" או "q-key:field-key", וערך כמו "ט״ז–כ׳" או "ד׳, כ״ג–כ״ד, ל״ב" (מספרי פסוקים בפרק הראשי של היחידה); "" מסיר את הפסוקים המוצמדים (ואז מוצגים אוטומטית הפסוקים שנוסח השאלה מזכיר); "none" מכבה את תיבת הפסוקים לגמרי (למשל בשאלת התמצאות בתנ״ך).
 - כשהבקשה דורשת שינוי באתר עצמו (כפתור, מסך, התנהגות, עיצוב, דבר שאין לו כלי) — השתמש ב-request_code_change עם כותרת קצרה ומפרט מלא בעברית: איפה באתר, מה בדיוק, למה, מה התלמידים יראו ומה המורה. הבקשה נבנית ועולה לאתר אוטומטית (בדרך כלל תוך 10–30 דקות); היא תראה את הסטטוס בכרטיס. דווח לה בדיוק מה הכלי החזיר: אם status=open — "נשלחה לבנייה האוטומטית" עם הקישור; אם status=queued — "נרשמה וממתינה בתור, תישלח מעצמה כשהבקשה הקודמת תסתיים"; אם יש note עם שגיאה — אמור שהשליחה נכשלה ושהמערכת תנסה שוב מעצמה. אין "מפתחים" ואין מתווך אנושי — אל תכתוב שאתה "מעביר למפתחים"; זה צינור אוטומטי שאתה עצמך מפעיל. אם לא ברור מה בדיוק היא רוצה — שאל שאלה אחת ממוקדת לפני שאתה שולח.
 - שאלות על "איך עושים X באתר" — ענה ישירות מהידע שלך על האתר (למטה).
 

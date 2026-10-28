@@ -1,7 +1,7 @@
 "use client";
 
 import { formatHebDateTime } from "@/lib/hebrew";
-import { chapterLabel, chapterLength, formatVerseNums, parseVerseSpec, versesForSpec } from "@/lib/verse-spec";
+import { chapterLabel, chapterLength, formatVerseNums, isNoVerses, parseVerseSpec, versesForSpec } from "@/lib/verse-spec";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type {
@@ -81,6 +81,51 @@ interface Props {
   // add questions). `original` = the file's sections, so hidden ones can be
   // restored; `edits` = what is currently saved.
   editable?: { edits: WorksheetEdits; unit: UnitEdits; original: TaskSection[] } | null;
+  // the student view (issue #21): the worksheet one question per screen
+  stepped?: boolean;
+  // question key → verses its wording names (lib/auto-verses.ts), shown when
+  // the question pins none of its own
+  autoVerses?: Record<string, PassageBlock>;
+  // the screen the student stopped on (question key or "summary")
+  initialStep?: string | null;
+}
+
+// One worksheet screen in the student view: a question with the context
+// blocks (intro / art / passage / source / case) that lead into it.
+interface Screen {
+  key: string;
+  section: TaskSection;
+  sectionIndex: number;
+  lead: TaskBlock[];
+  q: QuestionBlock;
+}
+const SUMMARY_STEP = "summary";
+
+function buildScreens(sections: TaskSection[]): { screens: Screen[]; tail: TaskBlock[] } {
+  const screens: Screen[] = [];
+  let pending: TaskBlock[] = [];
+  sections.forEach((section, sectionIndex) => {
+    for (const b of section.blocks) {
+      if (b.type === "question") {
+        screens.push({ key: b.key, section, sectionIndex, lead: pending, q: b });
+        pending = [];
+      } else {
+        pending.push(b);
+      }
+    }
+  });
+  // context after the last question rides on the summary screen
+  return { screens, tail: pending };
+}
+
+function answerKeys(q: QuestionBlock): string[] {
+  return q.fields ? q.fields.map((f) => `${q.key}:${f.key}`) : [q.key];
+}
+
+function answerState(q: QuestionBlock, answers: Record<string, string>): "done" | "part" | "none" {
+  const keys = answerKeys(q);
+  const filled = keys.filter((k) => (answers[k] ?? "").trim().length >= 2).length;
+  return filled === 0 ? "none" : filled === keys.length ? "done" : "part";
 }
 
 import { useAnswerGuard, GuardNotice, normalizeForPaste, type AnswerGuard } from "./answer-guard";
@@ -110,6 +155,9 @@ export default function TaskRunner({
   totalUnits,
   editable = null,
   initialFocusExits = 0,
+  stepped = false,
+  autoVerses = {},
+  initialStep = null,
 }: Props) {
   const [answers, setAnswers] = useState<Record<string, string>>(initialAnswers);
   const answersRef = useRef(answers);
@@ -496,8 +544,75 @@ export default function TaskRunner({
     }
   };
 
+  // ---------- one question per screen (student view, issue #21) ----------
+  const { screens, tail: summaryTail } = useMemo(() => buildScreens(content.sections), [content.sections]);
+  const stepIndexOf = (key: string | null | undefined) => {
+    if (!key) return -1;
+    if (key === SUMMARY_STEP) return screens.length;
+    return screens.findIndex((s) => s.key === key);
+  };
+  const [step, setStep] = useState(() => Math.max(0, stepIndexOf(initialStep)));
+  // the teacher may hide questions meanwhile — never point past the summary
+  const cur = Math.min(step, screens.length);
+  const onSummary = cur >= screens.length;
+  const stepRef = useRef(cur);
+  stepRef.current = cur;
+  const stepTopRef = useRef<HTMLDivElement | null>(null);
+  const stepStorageKey = `kt-step-${taskId}`;
+  // no saved position on the server (e.g. a failed save) → this device's
+  useEffect(() => {
+    if (!stepped || initialStep) return;
+    try {
+      const i = stepIndexOf(window.localStorage.getItem(stepStorageKey));
+      if (i > 0) setStep(i);
+    } catch {
+      // storage unavailable — start at the first question
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const goTo = (i: number) => {
+    const next = Math.min(Math.max(0, i), screens.length);
+    // answers are saved on every move, not only after the typing pause
+    for (const k of new Set([...Object.keys(answerTimers.current), ...Object.keys(answerHardTimers.current)])) {
+      flushAnswer(k);
+    }
+    setStep(next);
+    const key = next >= screens.length ? SUMMARY_STEP : screens[next].key;
+    try {
+      window.localStorage.setItem(stepStorageKey, key);
+    } catch {
+      // fine — the server keeps it too
+    }
+    fetch(`/api/tasks/${taskId}/step`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ step: key }),
+    }).catch(() => {});
+    const top = stepTopRef.current;
+    if (top) {
+      window.scrollTo({ top: Math.max(0, top.getBoundingClientRect().top + window.scrollY - 140), behavior: "smooth" });
+    }
+  };
+  const goRef = useRef(goTo);
+  goRef.current = goTo;
+  // keyboard: ← next, → back (RTL) — never while typing in a field
+  useEffect(() => {
+    if (!stepped || stage !== 8) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.defaultPrevented) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT|AUDIO|VIDEO)$/.test(t.tagName))) return;
+      e.preventDefault();
+      goRef.current(stepRef.current + (e.key === "ArrowLeft" ? 1 : -1));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [stepped, stage]);
+  const questionsDone = screens.filter((s) => answerState(s.q, answers) === "done").length;
+
   // ---------- markings ----------
-  const markOf = (passageKey: string, wordIndex: number) =>
+  const markOf =(passageKey: string, wordIndex: number) =>
     markings.filter((m) => m.passageKey === passageKey && m.wordIndex === wordIndex);
 
   const postMarking = (
@@ -740,6 +855,11 @@ export default function TaskRunner({
     setResetBusy(true);
     try {
       await fetch(`/api/tasks/${taskId}/reset`, { method: "POST" });
+      try {
+        window.localStorage.removeItem(stepStorageKey);
+      } catch {
+        // nothing saved here
+      }
       window.location.reload();
     } catch {
       setResetBusy(false);
@@ -755,6 +875,58 @@ export default function TaskRunner({
   };
 
   const overdue = Date.now() / 1000 > dueAt && !submitted;
+
+  // the debate ticket — always visible in Part B (on the summary screen in
+  // the student view), so every student knows exactly where they stand
+  // before the next lesson's debate
+  const ticketBox = ticket.total > 0 && (
+    <div
+      className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border-2 px-5 py-3 ${
+        ticket.ok
+          ? "border-[color:var(--success)]/50 bg-[color:var(--success)]/8"
+          : "border-dashed border-[color:var(--border)] bg-[color:var(--card)]"
+      }`}
+    >
+      <div>
+        <p className="font-display text-base font-extrabold text-[color:var(--primary)]">
+          🎫 כרטיס כניסה לדיון
+        </p>
+        <p className="text-xs text-[color:var(--foreground)]/70">
+          {ticket.ok
+            ? "ענית על כל השאלות של היחידה — בדיון הבא הבמה גם שלך."
+            : `עוד ${ticket.total - ticket.done} מתוך ${ticket.total} שאלות — ומקבלים כרטיס לדיון על היחידה הזו.`}
+        </p>
+      </div>
+      <span
+        className={`rounded-full px-3 py-1 text-xs font-bold ${
+          ticket.ok
+            ? "bg-[color:var(--success)] text-white"
+            : "bg-[color:var(--background)] text-[color:var(--primary)]/60"
+        }`}
+      >
+        {ticket.done}/{ticket.total}
+      </span>
+    </div>
+  );
+
+  const submitBox = !submitted && (
+    <div className="rounded-2xl border-2 border-[color:var(--accent)]/40 bg-[color:var(--card)] p-6 text-center">
+      <p className="mb-1 font-display text-lg font-bold text-[color:var(--primary)]">
+        מסיימים? זמן להגיש 🎉
+      </p>
+      <p className="mb-4 text-xs text-[color:var(--primary)]/60">
+        {!stepped && <>ענית על {answeredCount} מתוך {totalUnits} חלקים ({progressPct}%). </>}
+        אפשר לבטל הגשה ולתקן עד המועד האחרון.
+      </p>
+      <button
+        onClick={() => doSubmit("submit")}
+        disabled={submitBusy}
+        className="rounded-full bg-[color:var(--primary)] px-10 py-3 text-sm font-bold text-white shadow-lg transition hover:scale-[1.02] disabled:opacity-50"
+      >
+        {submitBusy ? "שולחים..." : "הגשת המשימה ✨"}
+      </button>
+    </div>
+  );
 
   return (
     <div
@@ -1037,9 +1209,174 @@ export default function TaskRunner({
               markOf={markOf}
               setMenu={setMenu}
               readOnly={readOnly}
+              defaultOpen={!stepped || cur === 0}
             />
           )}
-          {content.sections.map((section, si) => (
+          {stepped && (
+            <div ref={stepTopRef} className="space-y-6">
+              {/* where am I: "שאלה 4 מתוך 12" + a dot per question to jump */}
+              <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] px-4 py-3 shadow-sm">
+                <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                  <p className="font-display text-base font-extrabold text-[color:var(--primary)]">
+                    {onSummary ? "🏁 סיכום והגשה" : `שאלה ${cur + 1} מתוך ${screens.length}`}
+                  </p>
+                  <p className="text-[11px] font-semibold text-[color:var(--primary)]/55">
+                    ענית על {questionsDone} מתוך {screens.length}
+                  </p>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-[color:var(--border)]/50">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-l from-[color:var(--accent)] to-[color:var(--primary)] transition-all"
+                    style={{ width: `${screens.length ? Math.round((Math.min(cur + 1, screens.length) / screens.length) * 100) : 100}%` }}
+                  />
+                </div>
+                <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5" role="navigation" aria-label="מעבר בין השאלות">
+                  {screens.map((s, i) => {
+                    const st = answerState(s.q, answers);
+                    const here = i === cur;
+                    return (
+                      <button
+                        key={s.key}
+                        type="button"
+                        onClick={() => goTo(i)}
+                        aria-label={`שאלה ${i + 1}${st === "done" ? " (נענתה)" : st === "part" ? " (נענתה בחלקה)" : ""}`}
+                        aria-current={here ? "step" : undefined}
+                        title={`שאלה ${i + 1} · ${s.q.label}${st === "done" ? " ✓" : ""}`}
+                        className={[
+                          "h-3.5 w-3.5 rounded-full border transition hover:scale-125",
+                          st === "done"
+                            ? "border-[color:var(--success)] bg-[color:var(--success)]"
+                            : st === "part"
+                              ? "border-[color:var(--warning)] bg-[color:var(--warning)]/45"
+                              : "border-[color:var(--primary)]/30 bg-[color:var(--background)]",
+                          here ? "scale-125 ring-2 ring-[color:var(--accent)] ring-offset-1" : "",
+                        ].join(" ")}
+                      />
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={() => goTo(screens.length)}
+                    aria-label="סיכום והגשה"
+                    aria-current={onSummary ? "step" : undefined}
+                    title="סיכום והגשה"
+                    className={`ms-1 rounded-full px-1.5 text-xs leading-5 transition hover:scale-110 ${onSummary ? "bg-[color:var(--accent)]/15 ring-2 ring-[color:var(--accent)]" : ""}`}
+                  >
+                    🏁
+                  </button>
+                </div>
+              </div>
+
+              {!onSummary ? (
+                <div key={screens[cur].key} className="space-y-5">
+                  <p className="flex flex-wrap items-center gap-2 text-xs font-bold text-[color:var(--primary)]/60">
+                    <span className="rounded-full bg-[color:var(--primary)]/10 px-2 py-0.5">
+                      {screens[cur].sectionIndex + 1}
+                    </span>
+                    {screens[cur].section.title}
+                  </p>
+                  {[...screens[cur].lead, screens[cur].q].map((block) => (
+                    <BlockView
+                      key={block.key}
+                      block={block}
+                      answers={answers}
+                      setAnswer={setAnswer}
+                      markOf={markOf}
+                      setMenu={setMenu}
+                      readOnly={readOnly}
+                      askClaude={askClaude}
+                      onAskQuestion={questionBank ? openPassageQuestion : undefined}
+                      allowMark={!simple}
+                      chapter={mainPassage}
+                      autoVerses={autoVerses}
+                      versesOpen
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-5 shadow-sm">
+                    <p className="font-display text-lg font-extrabold text-[color:var(--primary)]">
+                      ענית על {questionsDone} מתוך {screens.length} שאלות
+                    </p>
+                    {questionsDone >= screens.length ? (
+                      <p className="mt-1 text-sm text-[color:var(--success)]">כל הכבוד — ענית על כל השאלות ✓</p>
+                    ) : (
+                      <>
+                        <p className="mb-2 mt-1 text-xs text-[color:var(--primary)]/60">
+                          השאלות שעוד לא נענו (לחיצה עוברת אליהן):
+                        </p>
+                        <ul className="space-y-1.5">
+                          {screens.map((s, i) =>
+                            answerState(s.q, answers) === "done" ? null : (
+                              <li key={s.key}>
+                                <button
+                                  type="button"
+                                  onClick={() => goTo(i)}
+                                  className="flex w-full items-baseline gap-2 rounded-xl border border-[color:var(--border)] px-3 py-2 text-start text-sm transition hover:border-[color:var(--accent)] hover:bg-[color:var(--accent)]/5"
+                                >
+                                  <span className="shrink-0 font-bold text-[color:var(--primary)]">שאלה {i + 1}</span>
+                                  <span className="min-w-0 flex-1 truncate text-[color:var(--foreground)]/70">
+                                    {s.q.label} — {s.q.prompt}
+                                  </span>
+                                  {answerState(s.q, answers) === "part" && (
+                                    <span className="shrink-0 text-[10px] font-semibold text-[color:var(--warning)]">בחלקה</span>
+                                  )}
+                                  <span className="shrink-0 text-[color:var(--accent)]">←</span>
+                                </button>
+                              </li>
+                            )
+                          )}
+                        </ul>
+                      </>
+                    )}
+                  </div>
+                  {summaryTail.map((block) => (
+                    <BlockView
+                      key={block.key}
+                      block={block}
+                      answers={answers}
+                      setAnswer={setAnswer}
+                      markOf={markOf}
+                      setMenu={setMenu}
+                      readOnly={readOnly}
+                      askClaude={askClaude}
+                      onAskQuestion={questionBank ? openPassageQuestion : undefined}
+                      allowMark={!simple}
+                      chapter={mainPassage}
+                    />
+                  ))}
+                  {ticketBox}
+                  {submitBox}
+                </div>
+              )}
+
+              {/* back (small, right) · next (big, left) — RTL */}
+              <div className="flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => goTo(cur - 1)}
+                  disabled={cur === 0}
+                  className="rounded-full border border-[color:var(--border)] bg-[color:var(--card)] px-4 py-2 text-sm font-semibold text-[color:var(--primary)]/75 transition hover:border-[color:var(--primary)]/40 disabled:invisible"
+                >
+                  → חזרה
+                </button>
+                <p className="hidden text-center text-[10px] text-[color:var(--primary)]/45 sm:block">
+                  התשובות נשמרות לבד · אפשר גם בחיצי המקלדת
+                </p>
+                {!onSummary && (
+                  <button
+                    type="button"
+                    onClick={() => goTo(cur + 1)}
+                    className="rounded-full bg-[color:var(--primary)] px-10 py-3 text-base font-extrabold text-white shadow-lg transition hover:scale-[1.02] active:scale-95"
+                  >
+                    {cur === screens.length - 1 ? "עבור לסיכום ←" : "עבור ←"}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          {!stepped && content.sections.map((section, si) => (
             <section key={section.key}>
               <div className="mb-4 flex items-center gap-3">
                 <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[color:var(--primary)] font-display text-sm font-bold text-white">
@@ -1092,63 +1429,15 @@ export default function TaskRunner({
                     onAskQuestion={questionBank ? openPassageQuestion : undefined}
                     allowMark={!simple}
                     chapter={mainPassage}
+                    autoVerses={autoVerses}
                   />
                 ))}
               </div>
             </section>
           ))}
 
-          {/* the debate ticket — always visible in Part B, so every student
-              knows exactly where they stand before the next lesson's debate */}
-          {ticket.total > 0 && (
-            <div
-              className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border-2 px-5 py-3 ${
-                ticket.ok
-                  ? "border-[color:var(--success)]/50 bg-[color:var(--success)]/8"
-                  : "border-dashed border-[color:var(--border)] bg-[color:var(--card)]"
-              }`}
-            >
-              <div>
-                <p className="font-display text-base font-extrabold text-[color:var(--primary)]">
-                  🎫 כרטיס כניסה לדיון
-                </p>
-                <p className="text-xs text-[color:var(--foreground)]/70">
-                  {ticket.ok
-                    ? "ענית על כל השאלות של היחידה — בדיון הבא הבמה גם שלך."
-                    : `עוד ${ticket.total - ticket.done} מתוך ${ticket.total} שאלות — ומקבלים כרטיס לדיון על היחידה הזו.`}
-                </p>
-              </div>
-              <span
-                className={`rounded-full px-3 py-1 text-xs font-bold ${
-                  ticket.ok
-                    ? "bg-[color:var(--success)] text-white"
-                    : "bg-[color:var(--background)] text-[color:var(--primary)]/60"
-                }`}
-              >
-                {ticket.done}/{ticket.total}
-              </span>
-            </div>
-          )}
-
-          {/* submit */}
-          {!submitted && (
-            <div className="rounded-2xl border-2 border-[color:var(--accent)]/40 bg-[color:var(--card)] p-6 text-center">
-              <p className="mb-1 font-display text-lg font-bold text-[color:var(--primary)]">
-                מסיימים? זמן להגיש 🎉
-              </p>
-              <p className="mb-4 text-xs text-[color:var(--primary)]/60">
-                ענית על {answeredCount} מתוך {totalUnits} חלקים ({progressPct}%).
-                אפשר לבטל הגשה ולתקן עד המועד האחרון.
-              </p>
-              <button
-                onClick={() => doSubmit("submit")}
-                disabled={submitBusy}
-                className="rounded-full bg-[color:var(--primary)] px-10 py-3 text-sm font-bold text-white shadow-lg transition hover:scale-[1.02] disabled:opacity-50"
-              >
-                {submitBusy ? "שולחים..." : "הגשת המשימה ✨"}
-              </button>
-            </div>
-          )}
+          {!stepped && ticketBox}
+          {!stepped && submitBox}
         </div>
       )}
 
@@ -1924,9 +2213,10 @@ function ReferencePassage(props: {
   markOf: (p: string, i: number) => Marking[];
   setMenu: (m: WordMenuState | null) => void;
   readOnly: boolean;
+  defaultOpen?: boolean;
 }) {
-  const { content, passage, markOf, setMenu, readOnly } = props;
-  const [open, setOpen] = useState(true);
+  const { content, passage, markOf, setMenu, readOnly, defaultOpen = true } = props;
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <div>
       {content.heroArt && (
@@ -2293,6 +2583,8 @@ function BlockView({
   onAskQuestion,
   allowMark = true,
   chapter,
+  autoVerses,
+  versesOpen = false,
 }: {
   block: TaskBlock;
   answers: Record<string, string>;
@@ -2305,6 +2597,10 @@ function BlockView({
   allowMark?: boolean;
   // the unit's main passage — questions pin their verses from it
   chapter: PassageBlock;
+  // verses named in a question's wording (lib/auto-verses.ts)
+  autoVerses?: Record<string, PassageBlock>;
+  // the student view: every verses box / link of the question starts open
+  versesOpen?: boolean;
 }) {
   if (block.type === "art") {
     return <TaskArt art={block.art} caption={block.caption} />;
@@ -2379,6 +2675,8 @@ function BlockView({
       readOnly={readOnly}
       askClaude={askClaude}
       chapter={chapter}
+      auto={autoVerses?.[block.key] ?? null}
+      versesOpen={versesOpen}
     />
   );
 }
@@ -2396,6 +2694,8 @@ function QuestionView({
   readOnly,
   askClaude,
   chapter,
+  auto = null,
+  versesOpen: startOpen = false,
 }: {
   q: QuestionBlock;
   answers: Record<string, string>;
@@ -2405,10 +2705,14 @@ function QuestionView({
   readOnly: boolean;
   askClaude: (context: string, input: string) => void;
   chapter: PassageBlock;
+  auto?: PassageBlock | null;
+  versesOpen?: boolean;
 }) {
   const icon = ICON_MAP[q.icon];
   const [versesOpen, setVersesOpen] = useState(true);
-  const pinned = pinnedPassage(chapter, q.verses, `qv-${q.key}`);
+  // pinned verses win; "none" turns the box off; otherwise the verses the
+  // wording names (resolved on the server)
+  const pinned = isNoVerses(q.verses) ? null : (pinnedPassage(chapter, q.verses, `qv-${q.key}`) ?? auto);
   const side = Boolean(pinned) && versesOpen;
   return (
     <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-5 shadow-sm">
@@ -2422,7 +2726,7 @@ function QuestionView({
         <p className="q-text mb-2 -mt-1 text-xs text-[color:var(--primary)]/55">💡 {q.helper}</p>
       )}
       {q.helpVerses && (
-        <HelpVerses refText={q.helpVerses.ref} verses={q.helpVerses.verses} />
+        <HelpVerses refText={q.helpVerses.ref} verses={q.helpVerses.verses} defaultOpen={startOpen} />
       )}
       {!pinned && q.versesNote && (
         <p className="mb-3 text-[11px] font-semibold text-[color:var(--accent)]">📖 {q.versesNote}</p>
@@ -2470,6 +2774,7 @@ function QuestionView({
                   readOnly={readOnly}
                   markOf={markOf}
                   setMenu={setMenu}
+                  defaultOpen={startOpen}
                 />
               ))}
             </div>
@@ -2526,6 +2831,7 @@ function FieldWithVerses({
   readOnly,
   markOf,
   setMenu,
+  defaultOpen = false,
 }: {
   label: string;
   pinned: PassageBlock | null;
@@ -2534,8 +2840,9 @@ function FieldWithVerses({
   readOnly: boolean;
   markOf: (p: string, i: number) => Marking[];
   setMenu: (m: WordMenuState | null) => void;
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   if (!pinned) {
     return <FieldArea label={label} value={value} onChange={onChange} readOnly={readOnly} rows={2} />;
   }
@@ -2576,11 +2883,13 @@ function FieldWithVerses({
 function HelpVerses({
   refText,
   verses,
+  defaultOpen = false,
 }: {
   refText: string;
   verses: PassageVerse[];
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const vAudio = useVerseAudio();
   const audioCtx = getVerseAudioContext();
   // chapter named in the ref text ("פרק ל״ב...") wins; otherwise the task's
