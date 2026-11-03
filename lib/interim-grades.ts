@@ -62,6 +62,13 @@ async function ensureTables() {
     ],
     "write"
   );
+  // issue #20: the toggle now defaults to "counts as 0"; missing_chosen marks a
+  // choice the teacher saved since then (an older row falls back to the default).
+  // Canonical DDL: migrations/0018_interim_missing_default.sql
+  const info = await db().execute("PRAGMA table_info(interim_grade_settings)");
+  if (!info.rows.some((r) => String(r.name) === "missing_chosen")) {
+    await db().execute("ALTER TABLE interim_grade_settings ADD COLUMN missing_chosen INTEGER NOT NULL DEFAULT 0");
+  }
   ready = true;
 }
 
@@ -110,10 +117,11 @@ async function unitTasks(): Promise<UnitTask[]> {
 }
 
 async function getSettings(tasks: InterimTask[]): Promise<InterimSettings> {
-  const r = await db().execute({ sql: "SELECT include_json, missing_as_zero FROM interim_grade_settings WHERE scope = ?", args: [SCOPE] });
+  const r = await db().execute({ sql: "SELECT include_json, missing_as_zero, missing_chosen FROM interim_grade_settings WHERE scope = ?", args: [SCOPE] });
   const all = tasks.map((t) => t.taskId);
   const row = r.rows[0];
-  if (!row) return { include: all, missingAsZero: false };
+  // the default (issue #20): an untouched task counts as 0
+  if (!row) return { include: all, missingAsZero: true };
   let include: number[] = all;
   try {
     const parsed = JSON.parse(String(row.include_json));
@@ -121,7 +129,8 @@ async function getSettings(tasks: InterimTask[]): Promise<InterimSettings> {
   } catch {
     /* a corrupt row — everything is included */
   }
-  return { include, missingAsZero: Number(row.missing_as_zero) === 1 };
+  const missingAsZero = Number(row.missing_chosen) === 1 ? Number(row.missing_as_zero) === 1 : true;
+  return { include, missingAsZero };
 }
 
 interface Job {
@@ -142,6 +151,7 @@ async function load(): Promise<{ grades: InterimGrades; jobs: Job[] }> {
   const checks = new Map<string, { hash: string; score: number; note: string }>(); // "task:user:key"
   const overrides = new Map<string, number>(); // "user:task" (task 0 = whole unit)
   const published = new Map<string, number>(); // "task:user" → published score
+  const assigned = new Set<string>(); // "task:user" — the student was assigned the task
   let publishedAt: number | null = null;
   if (ids.length) {
     const ar = await db().execute({ sql: `SELECT task_id, user_id, question_key, answer FROM task_answers WHERE task_id IN (${marks})`, args: ids });
@@ -154,6 +164,8 @@ async function load(): Promise<{ grades: InterimGrades; jobs: Job[] }> {
     for (const r of gr.rows) {
       checks.set(`${r.task_id}:${r.user_id}:${r.question_key}`, { hash: String(r.answer_hash), score: Number(r.score), note: String(r.note) });
     }
+    const asg = await db().execute({ sql: `SELECT task_id, user_id FROM task_assignments WHERE task_id IN (${marks})`, args: ids });
+    for (const r of asg.rows) assigned.add(`${r.task_id}:${r.user_id}`);
     const pr = await db().execute({ sql: "SELECT task_id, user_id, published_score, published_at FROM interim_grade_publications WHERE scope = ?", args: [SCOPE] });
     for (const r of pr.rows) {
       published.set(`${r.task_id}:${r.user_id}`, Number(r.published_score));
@@ -188,7 +200,7 @@ async function load(): Promise<{ grades: InterimGrades; jobs: Job[] }> {
       const touched = questions.some((q) => q.answer !== "");
       const scored = questions.filter((q) => q.score != null);
       const auto = touched && scored.length ? Math.round(scored.reduce((x, q) => x + (q.score ?? 0), 0) / scored.length) : null;
-      byTask[t.taskId] = { touched, questions, auto, pending: job.items.length, override: overrides.get(`${s.id}:${t.taskId}`) ?? null };
+      byTask[t.taskId] = { touched, assigned: assigned.has(`${t.taskId}:${s.id}`), questions, auto, pending: job.items.length, override: overrides.get(`${s.id}:${t.taskId}`) ?? null };
     }
     return { userId: s.id, name: s.fullName, klass: s.klass, tasks: byTask, override: overrides.get(`${s.id}:0`) ?? null };
   });
@@ -366,9 +378,9 @@ export async function saveSettings(s: InterimSettings) {
   for (const t of tasks) allowed.add(t.taskId);
   const include = [...new Set(s.include.map(Number))].filter((id) => allowed.has(id));
   await db().execute({
-    sql: `INSERT INTO interim_grade_settings (scope, include_json, missing_as_zero, updated_at) VALUES (?, ?, ?, ?)
+    sql: `INSERT INTO interim_grade_settings (scope, include_json, missing_as_zero, missing_chosen, updated_at) VALUES (?, ?, ?, 1, ?)
           ON CONFLICT(scope) DO UPDATE SET include_json = excluded.include_json,
-            missing_as_zero = excluded.missing_as_zero, updated_at = excluded.updated_at`,
+            missing_as_zero = excluded.missing_as_zero, missing_chosen = 1, updated_at = excluded.updated_at`,
     args: [SCOPE, JSON.stringify(include), s.missingAsZero ? 1 : 0, now()],
   });
 }

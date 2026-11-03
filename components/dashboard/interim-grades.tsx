@@ -6,6 +6,8 @@ import { AutosaveStatus, useAutosave } from "@/components/autosave";
 import { formatHebDateTime } from "@/lib/hebrew";
 import StudentName from "@/components/student-name";
 import {
+  basisLabel,
+  notAssigned,
   studentAverage,
   taskFinal,
   type InterimGrades,
@@ -86,6 +88,11 @@ export default function InterimGradesView({ grades }: { grades: InterimGrades })
     [grades.students, settings]
   );
   const included = new Set(settings.include);
+  // an included task the student was assigned and never touched, counted as 0
+  const countedZero = (s: InterimStudent, taskId: number) => {
+    const st = s.tasks[taskId];
+    return settings.missingAsZero && included.has(taskId) && taskFinal(st) == null && !notAssigned(st);
+  };
 
   const exportCsv = () => {
     const cell = (v: string | number | null) => {
@@ -96,9 +103,13 @@ export default function InterimGradesView({ grades }: { grades: InterimGrades })
     const lines = rows.map(({ s, avg }) => [
       s.name,
       s.klass ?? "",
-      ...grades.tasks.map((t) => taskFinal(s.tasks[t.taskId])),
+      ...grades.tasks.map((t) => {
+        const st = s.tasks[t.taskId];
+        if (notAssigned(st)) return "לא שויך";
+        return countedZero(s, t.taskId) ? 0 : taskFinal(st);
+      }),
       avg.final,
-      `${avg.basis} מתוך ${avg.of}`,
+      basisLabel(avg),
     ]);
     const csv = "﻿" + [head, ...lines].map((l) => l.map(cell).join(",")).join("\r\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
@@ -188,11 +199,11 @@ export default function InterimGradesView({ grades }: { grades: InterimGrades })
             </label>
           ))}
         </div>
-        <p className="mb-2 text-xs font-bold text-[color:var(--primary)]/70">משימה שהתלמיד לא עשה בכלל:</p>
+        <p className="mb-2 text-xs font-bold text-[color:var(--primary)]/70">משימה שלא נעשתה (אין בה שום תשובה):</p>
         <div className="flex flex-wrap gap-2" role="radiogroup">
           {[
-            { v: false, label: "לא נכנסת לממוצע" },
             { v: true, label: "נספרת כ-0" },
+            { v: false, label: "לא נכנסת לממוצע" },
           ].map((o) => (
             <button
               key={String(o.v)}
@@ -209,6 +220,9 @@ export default function InterimGradesView({ grades }: { grades: InterimGrades })
             </button>
           ))}
         </div>
+        <p className="mt-2 text-[11px] text-[color:var(--primary)]/60">
+          משימה שהתחילו ולא הגישו מקבלת ציון לפי התשובות שיש בה (שאלה ריקה = 0). משימה שהתלמיד לא היה משויך אליה לא נספרת לו בכלל.
+        </p>
       </section>
 
       {/* the table */}
@@ -257,10 +271,26 @@ export default function InterimGradesView({ grades }: { grades: InterimGrades })
                             type="button"
                             onClick={() => setOpen({ userId: s.userId, taskId: t.taskId })}
                             className="min-w-[3.25rem] rounded-lg px-2 py-1 font-bold tabular-nums transition hover:bg-[color:var(--primary)]/10"
-                            title={st?.override != null ? `ציון ידני${st.auto != null ? ` (ההצעה: ${st.auto})` : ""}` : "פירוט התשובות"}
+                            title={
+                              st?.override != null
+                                ? `ציון ידני${st.auto != null ? ` (ההצעה: ${st.auto})` : ""}`
+                                : notAssigned(st)
+                                  ? "התלמיד לא היה משויך למשימה — היא לא נספרת לו"
+                                  : countedZero(s, t.taskId)
+                                    ? "לא נעשתה — נספרת כ-0"
+                                    : "פירוט התשובות"
+                            }
                           >
                             {v == null ? (
-                              st?.touched ? <span className="text-[color:var(--primary)]/50">⏳</span> : <span className="text-[color:var(--primary)]/40">—</span>
+                              st?.touched ? (
+                                <span className="text-[color:var(--primary)]/50">⏳</span>
+                              ) : notAssigned(st) ? (
+                                <span className="whitespace-nowrap text-[11px] font-semibold text-[color:var(--primary)]/45">לא שויך</span>
+                              ) : countedZero(s, t.taskId) ? (
+                                <span className="text-[color:var(--danger)]/70">0</span>
+                              ) : (
+                                <span className="text-[color:var(--primary)]/40">—</span>
+                              )
                             ) : (
                               <span style={{ color: scoreColor(v) }}>
                                 {v}
@@ -284,7 +314,7 @@ export default function InterimGradesView({ grades }: { grades: InterimGrades })
                           {s.override != null && <span className="ms-0.5 text-[11px]">✋</span>}
                         </span>
                         <span className="block whitespace-nowrap text-[10px] text-[color:var(--primary)]/55">
-                          על בסיס {avg.basis} מתוך {avg.of} משימות
+                          {basisLabel(avg)}
                         </span>
                       </button>
                     </td>
@@ -295,7 +325,7 @@ export default function InterimGradesView({ grades }: { grades: InterimGrades })
           </div>
         )}
         <p className="mt-3 text-[11px] text-[color:var(--primary)]/60">
-          לחיצה על ציון פותחת את התשובות, הציון וההערה לכל שאלה, ושם אפשר לדרוס ידנית · ✋ ציון ידני של המורה · ⏳ יש תשובות שעוד לא נבדקו · — התלמיד לא נגע במשימה
+          לחיצה על ציון פותחת את התשובות, הציון וההערה לכל שאלה, ושם אפשר לדרוס ידנית · ✋ ציון ידני של המורה · ⏳ יש תשובות שעוד לא נבדקו · {settings.missingAsZero ? "0 — לא נעשתה ונספרת כ-0" : "— התלמיד לא נגע במשימה"} · לא שויך — המשימה לא נספרת לתלמיד
         </p>
       </section>
 
@@ -354,7 +384,7 @@ function DetailDrawer({
           <>
             <p className="mb-3 text-sm">
               ההצעה של הבדיקה: <b className="tabular-nums">{st?.auto ?? "—"}</b>
-              {st && !st.touched && " · התלמיד לא נגע במשימה"}
+              {st && !st.touched && (notAssigned(st) ? " · התלמיד לא היה משויך למשימה — היא לא נספרת לו" : settings.missingAsZero && settings.include.includes(taskId) ? " · לא נעשתה — נספרת כ-0" : " · התלמיד לא נגע במשימה")}
               {(st?.pending ?? 0) > 0 && ` · ${st?.pending} תשובות ממתינות לבדיקה`}
             </p>
             <OverrideEditor key={`${student.userId}:${task.taskId}`} userId={student.userId} taskId={task.taskId} current={st?.override ?? null} onSaved={onSaved} />
@@ -384,17 +414,19 @@ function DetailDrawer({
         ) : (
           <>
             <p className="mb-3 text-sm">
-              הממוצע המחושב: <b className="tabular-nums">{avg.auto ?? "—"}</b> · על בסיס {avg.basis} מתוך {avg.of} משימות
+              הממוצע המחושב: <b className="tabular-nums">{avg.auto ?? "—"}</b> · {basisLabel(avg)}
             </p>
             <OverrideEditor key={`${student.userId}:0`} userId={student.userId} taskId={0} current={student.override} onSaved={onSaved} />
             <ul className="mt-5 space-y-1.5 text-sm">
               {grades.tasks.map((t) => {
-                const v = taskFinal(student.tasks[t.taskId]);
+                const st = student.tasks[t.taskId];
+                const v = taskFinal(st);
+                const inc = settings.include.includes(t.taskId);
                 return (
-                  <li key={t.taskId} className={`flex justify-between gap-2 rounded-lg bg-[color:var(--card)] px-3 py-2 ${settings.include.includes(t.taskId) ? "" : "opacity-40"}`}>
+                  <li key={t.taskId} className={`flex justify-between gap-2 rounded-lg bg-[color:var(--card)] px-3 py-2 ${inc ? "" : "opacity-40"}`}>
                     <span>{t.title}</span>
                     <b className="tabular-nums">
-                      {v ?? "—"}
+                      {v ?? (notAssigned(st) ? "לא שויך" : inc && settings.missingAsZero ? "0 (לא נעשתה)" : "—")}
                       {student.tasks[t.taskId]?.override != null && " ✋"}
                     </b>
                   </li>
