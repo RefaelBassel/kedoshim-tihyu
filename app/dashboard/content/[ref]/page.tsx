@@ -5,6 +5,7 @@ import PageShell from "@/components/page-shell";
 import { getTaskContent, positionLabel } from "@/content/tasks/registry";
 import { getOverrides, applyOverrides, EMPTY_EDITS, EMPTY_UNIT } from "@/lib/content-overrides";
 import { db } from "@/lib/db";
+import PrintWorksheetLink from "@/components/dashboard/print-worksheet-link";
 import WorksheetEditor from "@/components/task/worksheet-editor";
 import { ReviewEditor } from "@/components/dashboard/unit-text-editors";
 import { chapterLabel, chapterLength } from "@/lib/verse-spec";
@@ -46,6 +47,7 @@ export default async function ContentEditPage({
               👀 המשימה כפי שהכיתה רואה
             </Link>
           )}
+          <PrintWorksheetLink contentRef={ref} variant="text" />
         </p>
 
         <section className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-5">

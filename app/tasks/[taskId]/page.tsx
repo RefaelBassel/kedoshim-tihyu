@@ -7,6 +7,7 @@ import LessonStrip from "@/components/lesson-strip";
 import ReflectionDrawer from "@/components/reflection-drawer";
 import TaskRunner from "@/components/task/task-runner";
 import PrintLinks from "@/components/task/print-links";
+import PrintWorksheetLink from "@/components/dashboard/print-worksheet-link";
 import {
   getTask,
   isAssigned,
@@ -135,7 +136,8 @@ export default async function TaskPage({
           <p className="mt-1 text-xs text-[color:var(--primary)]/55">
             📅 להגשה עד: {formatFullDate(task.due_at)}
           </p>
-          <p className="mt-2">
+          <p className="mt-2 flex flex-wrap items-center justify-center gap-3">
+            {canEditContent && <PrintWorksheetLink contentRef={task.content_ref} />}
             <PrintLinks contentRef={task.content_ref} />
           </p>
           {canEditContent && (

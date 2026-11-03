@@ -5,6 +5,7 @@ import PageShell from "@/components/page-shell";
 import ClassPulseDrawer from "@/components/class-pulse-drawer";
 import TaskAdminPanel, { UnassignButton } from "@/components/dashboard/task-admin";
 import PrintLinks from "@/components/task/print-links";
+import PrintWorksheetLink from "@/components/dashboard/print-worksheet-link";
 import StudentName from "@/components/student-name";
 import { getTask, taskRoster, unassignedStudents, STATUS_META, isTaskCancelled } from "@/lib/tasks";
 import { positionLabel } from "@/content/tasks/registry";
@@ -117,6 +118,7 @@ export default async function DashboardTaskPage({
             🧪 מבחן ודף הכנה — ויקרא ט״ז
           </Link>
         )}
+        <PrintWorksheetLink contentRef={task.content_ref} />
         <PrintLinks contentRef={task.content_ref} />
       </p>
 
