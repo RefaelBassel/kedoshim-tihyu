@@ -26,7 +26,7 @@ import {
   taskRoster,
   updateTaskDueDate,
 } from "./tasks";
-import { approveUser, blockUser, listAccounts, makeStudent, makeTeacher, preApproveEmail, unblockUser } from "./approval";
+import { approveUser, blockUser, listAccounts, makeStudent, makeTeacher, preApproveEmail, renameUser, restoreUserName, unblockUser } from "./approval";
 import { mergeAccounts, planMerge } from "./account-merge";
 import { sendGroupMessage, sendMessage } from "./messages";
 import { formatHebDateTime, israelLocalToUnix } from "./hebrew";
@@ -474,14 +474,15 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "account_action",
-    description: "Approve a pending account, block / unblock, mark an account as a teacher or back as a student, pre-approve an email that has not signed in yet, or merge two accounts of the same student (merge: userId = the account merged away, keepUserId = the account that stays; all its work moves to keepUserId — a task worked in both keeps the more advanced version, the other is archived; the merged account leaves every list and signing in with its email lands in the kept account). Merge cannot be undone — check list_students first and use it only when the teacher clearly named which account stays.",
+    description: "Approve a pending account, block / unblock, mark an account as a teacher or back as a student, pre-approve an email that has not signed in yet, or merge two accounts of the same student (merge: userId = the account merged away, keepUserId = the account that stays; all its work moves to keepUserId — a task worked in both keeps the more advanced version, the other is archived; the merged account leaves every list and signing in with its email lands in the kept account), or rename an account (rename: userId + name = the student's full Hebrew display name; the teacher's name wins over the student's own and is never overwritten at the next sign-in; it shows everywhere on the site). Merge cannot be undone — check list_students first and use it only when the teacher clearly named which account stays.",
     input_schema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["approve", "block", "unblock", "make_teacher", "make_student", "pre_approve_email", "merge"] },
+        action: { type: "string", enum: ["approve", "block", "unblock", "make_teacher", "make_student", "pre_approve_email", "merge", "rename"] },
         userId: { type: "integer" },
         keepUserId: { type: "integer", description: "merge only: the account that stays" },
         email: { type: "string" },
+        name: { type: "string", description: "rename only: the new full display name, in Hebrew" },
       },
       required: ["action"],
       additionalProperties: false,
@@ -808,6 +809,11 @@ async function buildProposal(name: string, input: Record<string, unknown>): Prom
       }
       const acc = (await listAccounts()).find((a) => a.id === Number(input.userId));
       if (!acc) return { error: "account not found" };
+      if (action === "rename") {
+        const name = str(input.name, 80).replace(/\s+/g, " ").trim();
+        if (!name) return { error: "name required" };
+        return { summary: `שינוי שם: ${acc.fullName ?? acc.email} ← ${name}`, preview: { changes: [{ what: `שם התצוגה (${acc.email})`, before: acc.fullName ?? "(בלי שם)", after: name }] } };
+      }
       const label: Record<string, string> = { approve: "לאשר כניסה", block: "לחסום", unblock: "לבטל חסימה", make_teacher: "לסמן כמורה", make_student: "להחזיר לתלמיד/ה" };
       if (!label[action]) return { error: "unknown action" };
       return { summary: `${label[action]}: ${acc.fullName ?? acc.email}`, preview: { changes: [{ what: acc.fullName ?? acc.email, before: `${acc.role === "teacher" ? "מורה" : "תלמיד/ה"} · ${acc.state}`, after: label[action] }] } };
@@ -980,6 +986,11 @@ export async function applyAction(actionId: number, userId: number): Promise<Act
         else if (action === "make_teacher") { await makeTeacher(id); undo = { make_student: id }; }
         else if (action === "make_student") { await makeStudent(id); undo = { make_teacher: id }; }
         else if (action === "pre_approve_email") await preApproveEmail(str(input.email, 200).toLowerCase());
+        else if (action === "rename") {
+          const r = await renameUser(id, str(input.name, 80));
+          if (!r.ok) throw new Error(r.error);
+          undo = { rename: id, fullName: r.before.fullName, setAt: r.before.setAt };
+        }
         else if (action === "merge") {
           const r = await mergeAccounts(Number(input.keepUserId), id, { by: userId });
           if (!r.ok) throw new Error(r.error);
@@ -1100,6 +1111,7 @@ export async function undoAction(actionId: number, userId: number): Promise<Acti
       else if (undo.block) await blockUser(Number(undo.block));
       else if (undo.make_student) await makeStudent(Number(undo.make_student));
       else if (undo.make_teacher) await makeTeacher(Number(undo.make_teacher));
+      else if (undo.rename) await restoreUserName(Number(undo.rename), (undo.fullName as string | null) ?? null, undo.setAt != null ? Number(undo.setAt) : null);
       break;
     case "edit_exam":
       await saveExam(Number(undo.examId), undo.doc as ExamDoc, undo.status === "ready" ? "ready" : "draft");
@@ -1293,6 +1305,7 @@ const SYSTEM = `אתה קלוד — העוזר של המורה באתר "${SITE.
 איך זה עובד:
 - כלי קריאה (list_units, get_unit, list_students, list_tasks, class_progress, get_lesson_plan, list_code_requests, list_exams, get_exam, get_class_slide) פועלים מיד — השתמש בהם בחופשיות כדי לדעת את המצב האמיתי לפני שאתה מציע משהו.
 - כלי שינוי (edit_unit_texts, edit_review, edit_discussion, reset_unit_edits, publish_unit, set_due_date, cancel_task, republish_task, mark_unit, mark_done_up_to, account_action, send_message, edit_exam, edit_exam_prep, edit_class_slide, request_code_change) מבצעים מיד, בלי שום אישור — זה צ׳אט רגיל: היא כותבת, אתה עושה, ומספר במשפט-שניים מה בדיוק שונה (ציטוט קצר של הנוסח החדש כשזה טקסט). אל תשאל "האם לבצע?" ואל תציג אפשרויות לבחירה — רק אם הבקשה באמת דו-משמעית, שאל שאלה אחת קצרה. כל שינוי ניתן לביטול עם undo_change כשהיא מבקשת לבטל / להחזיר.
+- שינוי שם התצוגה של תלמיד/ה (account_action עם action=rename, userId ו-name — השם המלא בעברית): קודם list_students כדי למצוא את החשבון (חשבון בלי שם מופיע עם name ריק — לזהות לפי המייל). השם שהמורה קבעה גובר על השם של התלמיד/ה ומופיע בכל האתר.
 - איחוד חשבונות כפולים של תלמיד/ה (account_action עם action=merge): קודם list_students, ורק כשברור איזה חשבון נשאר (keepUserId) ואיזה מתמזג (userId). זו הפעולה היחידה שלא ניתנת לביטול — אמור/אמרי זאת, וספר/י בקצרה מה עבר (הכלי מחזיר סיכום).
 - מבחנים: המבחן גלוי למורה בלבד — לעולם לא לתלמידים. לפני edit_exam או edit_exam_prep — תמיד get_exam קודם (מזהי השאלות, הנוסח והניקוד הנוכחיים). כשמשנים ניקוד — אמור/אמרי מה הסכום החדש. דף ההכנה מוסתר עד שהיא מבקשת לפרסם (publish=true); שאלות המבחן עצמן לא נכנסות לדף ההכנה.
 - שקופית כללי השיעור (/dashboard/slide, למורה בלבד, מוקרנת בתחילת שיעור): כותרת, שלושה בלוקים — task (📝 המשימה), rules (📏 הכללים), done (🏠 סיימת?) — ושורת סיום. כשהיא מבקשת לעדכן אותה לשיעור הבא — get_class_slide ואז edit_class_slide (lines מחליף את כל השורות של הבלוק).

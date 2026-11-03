@@ -11,6 +11,7 @@ import {
   makeTeacherAction,
   preApproveAction,
   removeAction,
+  renameAction,
   unblockAction,
 } from "@/app/dashboard/students/actions";
 import { TEACHER_EMAILS } from "@/lib/roles";
@@ -123,7 +124,9 @@ export default function StudentsAdmin({
         <ul className="space-y-1.5 text-sm">
           {teachers.map((t) => (
             <li key={t.id} className="flex flex-wrap items-center justify-between gap-2">
-              <span className="font-semibold">{t.fullName ?? t.email}</span>
+              <span className="flex flex-wrap items-center gap-2 font-semibold">
+                <NameEditor account={t} />
+              </span>
               <span className="flex items-center gap-2">
                 <span className="text-xs text-[color:var(--primary)]/55" dir="ltr">
                   {t.email}
@@ -169,14 +172,14 @@ function Group({
           {rows.map((a) => (
             <li key={a.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
               <div className="min-w-0">
-                <p className="truncate text-sm font-bold text-[color:var(--foreground)]">
-                  {a.fullName ?? <span className="text-[color:var(--warning)]">(עוד לא הזין/ה שם)</span>}
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-bold text-[color:var(--foreground)]">
+                  <NameEditor account={a} />
                   {a.hasWork && (
-                    <span className="ms-2 rounded-full bg-[color:var(--primary)]/10 px-2 py-0.5 text-[10px] font-semibold text-[color:var(--primary)]">
+                    <span className="rounded-full bg-[color:var(--primary)]/10 px-2 py-0.5 text-[10px] font-semibold text-[color:var(--primary)]">
                       יש עבודה שמורה
                     </span>
                   )}
-                </p>
+                </div>
                 <p className="text-xs text-[color:var(--primary)]/60">
                   <span dir="ltr">{a.email}</span>
                   {" · "}נכנס/ה לראשונה {fmt(a.createdAt)}
@@ -189,6 +192,100 @@ function Group({
         </ul>
       )}
     </section>
+  );
+}
+
+// The name on a roster row, with "✏️ שינוי שם": the teacher sets the display
+// name, which wins over the student's own and shows everywhere on the site.
+// An account with no name shows its email in grey, never an empty row.
+function NameEditor({ account }: { account: AccountRow }) {
+  // the just-saved name shows at once; the server props catch up on refresh
+  const [local, setName] = useState<string | null>(null);
+  const name = local ?? account.fullName;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [busy, start] = useTransition();
+
+  const open = () => {
+    setDraft(name ?? "");
+    setErr(null);
+    setSaved(false);
+    setEditing(true);
+  };
+  const save = () =>
+    start(async () => {
+      const clean = draft.replace(/\s+/g, " ").trim();
+      if (!clean) {
+        setErr("צריך לכתוב שם.");
+        return;
+      }
+      setErr(null);
+      const r = await renameAction(account.id, clean);
+      if (r.ok) {
+        setName(clean);
+        setEditing(false);
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2500);
+      } else setErr(r.error ?? "משהו השתבש");
+    });
+
+  if (editing) {
+    return (
+      <span className="flex flex-wrap items-center gap-1.5">
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") save();
+            if (e.key === "Escape" && !busy) setEditing(false);
+          }}
+          autoFocus
+          maxLength={80}
+          disabled={busy}
+          placeholder="שם מלא בעברית"
+          aria-label="שם התצוגה"
+          className="w-44 rounded-lg border border-[color:var(--border)] bg-[color:var(--background)] px-2 py-1 text-sm font-normal outline-none focus:border-[color:var(--accent)]"
+        />
+        <button
+          type="button"
+          disabled={busy}
+          onClick={save}
+          className="rounded-full bg-[color:var(--primary)] px-3 py-1 text-xs font-bold text-white transition disabled:opacity-50"
+        >
+          {busy ? "שומר…" : "שמירה"}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => setEditing(false)}
+          className="rounded-full border border-[color:var(--border)] px-3 py-1 text-xs font-bold text-[color:var(--primary)]/70 disabled:opacity-40"
+        >
+          ביטול
+        </button>
+        {err && <span className="text-[10px] text-[color:var(--danger)]">{err}</span>}
+      </span>
+    );
+  }
+  return (
+    <>
+      {name ? (
+        <span className="truncate">{name}</span>
+      ) : (
+        <span className="truncate font-normal text-[color:var(--foreground)]/45" dir="ltr" title="לחשבון הזה אין שם">
+          {account.email}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={open}
+        className="rounded-full border border-[color:var(--border)] px-2 py-0.5 text-[11px] font-bold text-[color:var(--primary)]/70 transition hover:border-[color:var(--accent)]"
+      >
+        ✏️ שינוי שם
+      </button>
+      {saved && <span className="text-[11px] font-semibold text-[color:var(--success)]">✓ נשמר</span>}
+    </>
   );
 }
 

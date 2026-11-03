@@ -10,19 +10,36 @@ export default async function OnboardingPage() {
   if (!session?.user) redirect("/login");
   if (session.user.onboarded) redirect("/");
   const isTeacher = session.user.role === "teacher";
+  // a name the teacher already set (issue #19) is kept as is
+  const { ensureApprovalColumns } = await import("@/lib/approval");
+  await ensureApprovalColumns();
+  const nameRow = await db().execute({
+    sql: "SELECT full_name, name_set_by_teacher_at FROM users WHERE id = ?",
+    args: [Number(session.user.id)],
+  });
+  const teacherName =
+    nameRow.rows[0]?.name_set_by_teacher_at != null
+      ? ((nameRow.rows[0]?.full_name as string | null) ?? null)
+      : null;
 
   async function completeOnboarding(formData: FormData) {
     "use server";
-    const fullName = String(formData.get("fullName") ?? "").trim().slice(0, 80);
+    let fullName = String(formData.get("fullName") ?? "").trim().slice(0, 80);
     const klass = String(formData.get("class") ?? "").trim().slice(0, 12);
     const addressForm = String(formData.get("addressForm") ?? "neutral");
     const valid = ["f", "m", "neutral"].includes(addressForm) ? addressForm : "neutral";
-    if (!fullName) return;
     const session = await auth();
     if (!session?.user?.id) return;
     const teacher = session.user.role === "teacher";
     if (!teacher && !klass) return;
     const userId = Number(session.user.id);
+    // the name a teacher set wins over the one typed here
+    const set = await db().execute({
+      sql: "SELECT full_name FROM users WHERE id = ? AND name_set_by_teacher_at IS NOT NULL AND full_name IS NOT NULL",
+      args: [userId],
+    });
+    if (set.rows[0]) fullName = String(set.rows[0].full_name);
+    if (!fullName) return;
     const now = Math.floor(Date.now() / 1000);
     await db().execute({
       sql: "UPDATE users SET full_name = ?, class = ?, address_form = ?, onboarded_at = ? WHERE id = ?",
@@ -82,8 +99,15 @@ export default async function OnboardingPage() {
               required
               autoComplete="name"
               placeholder="לדוגמה: דניאל כהן"
-              className="w-full rounded-lg border border-[color:var(--border)] bg-white px-4 py-2 text-right outline-none transition focus:border-[color:var(--accent)]"
+              defaultValue={teacherName ?? undefined}
+              readOnly={teacherName != null}
+              className="w-full rounded-lg border border-[color:var(--border)] bg-white px-4 py-2 text-right outline-none transition read-only:bg-[color:var(--background)] focus:border-[color:var(--accent)]"
             />
+            {teacherName != null && (
+              <p className="mt-1 text-xs text-[color:var(--primary)]/60">
+                השם נקבע על ידי המורה. לשינוי — אפשר לכתוב למורה בעמוד ״קשר״.
+              </p>
+            )}
           </div>
 
           <div>

@@ -7,6 +7,12 @@ import { createNotification, teacherIds } from "./notify";
 // lib/roles.ts whitelist are always approved. A blocked account is kept
 // (with its work) but cannot get past the gate.
 
+// Names a teacher identified for accounts whose Google profile gave none
+// (issue #19). Applied only if the id still carries the expected email.
+const SEED_NAMES: { id: number; email: string; name: string }[] = [
+  { id: 28, email: "oragus2012@gmail.com", name: "אור איגוס" },
+];
+
 let columnsReady = false;
 export async function ensureApprovalColumns() {
   if (columnsReady) return;
@@ -21,6 +27,23 @@ export async function ensureApprovalColumns() {
   }
   if (!cols.has("blocked_at")) {
     await db().execute("ALTER TABLE users ADD COLUMN blocked_at INTEGER");
+  }
+  // teacher-set display names (issue #19)
+  if (!cols.has("name_set_by_teacher_at")) {
+    await db().execute("ALTER TABLE users ADD COLUMN name_set_by_teacher_at INTEGER");
+  }
+  // a blank name is no name: lists fall back to the email, never an empty row
+  await db().execute(
+    "UPDATE users SET full_name = NULL WHERE full_name IS NOT NULL AND TRIM(full_name) = ''"
+  );
+  // one-time names the teacher asked for; each runs only while no teacher
+  // name was set on that account, so a later rename is never overwritten
+  for (const s of SEED_NAMES) {
+    await db().execute({
+      sql: `UPDATE users SET full_name = ?, name_set_by_teacher_at = ?
+            WHERE id = ? AND LOWER(email) = ? AND name_set_by_teacher_at IS NULL`,
+      args: [s.name, Math.floor(Date.now() / 1000), s.id, s.email],
+    });
   }
   // teachers are always in
   await db().execute(
@@ -166,10 +189,49 @@ export async function removeUser(userId: number) {
   });
 }
 
+// The teacher sets a student's display name (issue #19). It wins over the
+// name the student typed at onboarding and is never overwritten by a later
+// sign-in or onboarding. Returns the previous state for undo.
+export async function renameUser(
+  userId: number,
+  name: string
+): Promise<{ ok: true; before: { fullName: string | null; setAt: number | null } } | { ok: false; error: string }> {
+  await ensureApprovalColumns();
+  const clean = name.replace(/\s+/g, " ").trim().slice(0, 80);
+  if (!clean) return { ok: false, error: "צריך לכתוב שם." };
+  const r = await db().execute({
+    sql: "SELECT full_name, name_set_by_teacher_at FROM users WHERE id = ? AND merged_into IS NULL",
+    args: [userId],
+  });
+  const row = r.rows[0];
+  if (!row) return { ok: false, error: "החשבון לא נמצא." };
+  await db().execute({
+    sql: "UPDATE users SET full_name = ?, name_set_by_teacher_at = ? WHERE id = ?",
+    args: [clean, now(), userId],
+  });
+  return {
+    ok: true,
+    before: {
+      fullName: (row.full_name as string | null) ?? null,
+      setAt: row.name_set_by_teacher_at != null ? Number(row.name_set_by_teacher_at) : null,
+    },
+  };
+}
+
+// undo of renameUser
+export async function restoreUserName(userId: number, fullName: string | null, setAt: number | null) {
+  await ensureApprovalColumns();
+  await db().execute({
+    sql: "UPDATE users SET full_name = ?, name_set_by_teacher_at = ? WHERE id = ?",
+    args: [fullName && fullName.trim() ? fullName : null, setAt, userId],
+  });
+}
+
 export interface AccountRow {
   id: number;
   email: string;
   fullName: string | null;
+  nameSetByTeacher: boolean;
   role: string;
   createdAt: number;
   lastSeenAt: number | null;
@@ -182,7 +244,7 @@ export async function listAccounts(): Promise<AccountRow[]> {
   await ensureApprovalColumns();
   const res = await db().execute({
     sql: `SELECT u.id, u.email, u.full_name, u.role, u.created_at, u.last_seen_at,
-                 u.onboarded_at, u.approved_at, u.blocked_at,
+                 u.onboarded_at, u.approved_at, u.blocked_at, u.name_set_by_teacher_at,
                  EXISTS(SELECT 1 FROM task_answers a WHERE a.user_id = u.id) AS has_work
           FROM users u
           WHERE u.merged_into IS NULL
@@ -193,6 +255,7 @@ export async function listAccounts(): Promise<AccountRow[]> {
     id: Number(r.id),
     email: String(r.email),
     fullName: (r.full_name as string | null) ?? null,
+    nameSetByTeacher: r.name_set_by_teacher_at != null,
     role: String(r.role),
     createdAt: Number(r.created_at),
     lastSeenAt: r.last_seen_at != null ? Number(r.last_seen_at) : null,

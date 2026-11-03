@@ -187,3 +187,11 @@ a projected board never contains teacher input; the control is a separate page.
   (or counts them as 0 — her toggle). Manual overrides per task or per student (✋), CSV export.
 - Nothing reaches students unless she presses "פרסום ציונים": it writes the included task grades to grades.score
   (approved, one bell, no email) and keeps the previous rows, so "ביטול הפרסום" restores them.
+
+## Teacher-set student names (issue #19)
+- `/dashboard/students`: "✏️ שינוי שם" beside every account sets the display name (lib/approval.ts `renameUser`;
+  `users.name_set_by_teacher_at`, migration 0018). It wins over the student's own name: onboarding keeps it and a
+  sign-in never touches it; a signed-in student's header, /me and chat pick it up within a minute (auth.ts jwt).
+  The teacher chat does the same with `account_action` rename (userId + name, undoable).
+- A blank name is NULL; nameless accounts show their email (grey in teacher lists, components/student-name.tsx).
+- One-time seed (SEED_NAMES in lib/approval.ts): account 28 oragus2012@gmail.com → אור איגוס.

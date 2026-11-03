@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import type { ExamPulse, PulseStudent } from "@/lib/exam-pulse";
 import { formatHebDateTime } from "@/lib/hebrew";
+import StudentName from "@/components/student-name";
 import { formatExamDate } from "@/lib/exam-export-shared";
 
 // The "דופק כיתה" screen: big metrics, a readiness chart, the per-student
@@ -174,7 +175,7 @@ export default function ExamPulseView({ pulse }: { pulse: ExamPulse }) {
                       const b = band(s.readiness);
                       return (
                         <tr key={s.userId} className="border-b border-[color:var(--border)]/60 last:border-0">
-                          <td className="px-2 py-2 font-semibold text-[color:var(--primary)]">{s.name}</td>
+                          <td className="px-2 py-2 font-semibold text-[color:var(--primary)]"><StudentName name={s.name} /></td>
                           <td className="px-2 py-2">{s.klass ?? "—"}</td>
                           <td className="px-2 py-2">
                             {pulse.hasPrep ? (

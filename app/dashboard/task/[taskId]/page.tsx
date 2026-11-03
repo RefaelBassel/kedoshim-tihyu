@@ -5,6 +5,7 @@ import PageShell from "@/components/page-shell";
 import ClassPulseDrawer from "@/components/class-pulse-drawer";
 import TaskAdminPanel, { UnassignButton } from "@/components/dashboard/task-admin";
 import PrintLinks from "@/components/task/print-links";
+import StudentName from "@/components/student-name";
 import { getTask, taskRoster, unassignedStudents, STATUS_META, isTaskCancelled } from "@/lib/tasks";
 import { positionLabel } from "@/content/tasks/registry";
 import { hasOpening } from "@/content/openings/registry";
@@ -155,7 +156,7 @@ export default async function DashboardTaskPage({
                         className="border-b border-[color:var(--border)]/50 last:border-0"
                       >
                         <td className="px-4 py-2.5 font-semibold text-[color:var(--primary)]">
-                          {r.fullName}
+                          <StudentName name={r.fullName} />
                         </td>
                         <td className="px-4 py-2.5 text-[color:var(--primary)]/70">
                           {r.klass ?? "—"}
