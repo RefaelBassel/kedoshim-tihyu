@@ -69,7 +69,7 @@ export async function loadThreadsFor(userId: number): Promise<ThreadSummary[]> {
 
   const placeholders = partnerIds.map(() => "?").join(", ");
   const profilesResult = await db().execute({
-    sql: `SELECT id, full_name, role FROM users WHERE id IN (${placeholders})`,
+    sql: `SELECT id, COALESCE(full_name, email) AS full_name, role FROM users WHERE id IN (${placeholders})`,
     args: partnerIds,
   });
   const profileById = new Map(
@@ -195,7 +195,7 @@ export async function loadGroupMessages(
 ): Promise<GroupMessage[]> {
   const r = await db().execute({
     sql: `SELECT g.id, g.from_user_id, g.body, g.sent_at,
-                 u.full_name AS from_name, u.role AS from_role
+                 COALESCE(u.full_name, u.email) AS from_name, u.role AS from_role
           FROM group_messages g
           JOIN users u ON u.id = g.from_user_id
           WHERE g.group_id = ?

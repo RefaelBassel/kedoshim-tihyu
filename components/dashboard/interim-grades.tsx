@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { AutosaveStatus, useAutosave } from "@/components/autosave";
 import { formatHebDateTime } from "@/lib/hebrew";
+import StudentName from "@/components/student-name";
 import {
   studentAverage,
   taskFinal,
@@ -245,7 +246,7 @@ export default function InterimGradesView({ grades }: { grades: InterimGrades })
               <tbody>
                 {rows.map(({ s, avg }) => (
                   <tr key={s.userId} className="border-b border-[color:var(--border)]/60 last:border-0">
-                    <td className="px-2 py-2 font-semibold text-[color:var(--primary)]">{s.name}</td>
+                    <td className="px-2 py-2 font-semibold text-[color:var(--primary)]"><StudentName name={s.name} /></td>
                     <td className="px-2 py-2">{s.klass ?? "—"}</td>
                     {grades.tasks.map((t) => {
                       const st = s.tasks[t.taskId];
@@ -341,7 +342,7 @@ function DetailDrawer({
       >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <p className="font-display text-lg font-extrabold text-[color:var(--primary)]">{student.name}</p>
+            <p className="font-display text-lg font-extrabold text-[color:var(--primary)]"><StudentName name={student.name} /></p>
             <p className="text-sm text-[color:var(--primary)]/70">{task ? task.title : "הציון של כל הפרק"}</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-full border border-[color:var(--border)] px-3 py-1 text-sm font-bold text-[color:var(--primary)] hover:bg-[color:var(--primary)]/10">

@@ -9,6 +9,7 @@ import {
   makeTeacher,
   preApproveEmail,
   removeUser,
+  renameUser,
   unblockUser,
 } from "@/lib/approval";
 import { mergeAccounts, planMerge } from "@/lib/account-merge";
@@ -50,6 +51,16 @@ export async function removeAction(userId: number) {
   if (!(await requireTeacher())) return { ok: false, error: "למורות בלבד." };
   await removeUser(userId);
   done();
+  return { ok: true };
+}
+
+// The teacher sets the display name; it shows everywhere on the site and is
+// never overwritten by the student's next sign-in.
+export async function renameAction(userId: number, name: string) {
+  if (!(await requireTeacher())) return { ok: false, error: "למורות בלבד." };
+  const r = await renameUser(userId, name);
+  if (!r.ok) return { ok: false, error: r.error };
+  revalidatePath("/", "layout");
   return { ok: true };
 }
 

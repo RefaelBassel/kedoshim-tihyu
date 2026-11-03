@@ -168,6 +168,14 @@ export const { handlers, auth, signIn, signOut, unstable_update: updateSession }
             } else {
               token.approved = state === "approved";
               token.blocked = state === "blocked";
+              // a name the teacher set (issue #19) reaches the header, /me
+              // and the chat within a minute, no sign-out needed
+              const n = await db().execute({
+                sql: "SELECT full_name FROM users WHERE email = ?",
+                args: [String(token.email).toLowerCase()],
+              });
+              const fresh = (n.rows[0]?.full_name as string | null) ?? null;
+              if (fresh) token.fullName = fresh;
             }
             token.checkedAt = nowSec;
           } catch {
