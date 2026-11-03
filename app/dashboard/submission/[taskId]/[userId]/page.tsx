@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { redirect, notFound } from "next/navigation";
 import PageShell from "@/components/page-shell";
 import GradePanel from "@/components/dashboard/grade-panel";
+import PrintWorksheetLink from "@/components/dashboard/print-worksheet-link";
 import { db } from "@/lib/db";
 import {
   getTask,
@@ -88,6 +89,15 @@ export default async function SubmissionPage({
       }`}
     >
       <div className="mx-auto max-w-3xl space-y-8">
+        <p className="flex flex-wrap items-center justify-center gap-3">
+          <PrintWorksheetLink
+            contentRef={task.content_ref}
+            studentId={studentId}
+            taskId={taskId}
+            label="🖨️ הדפסת הגשה של התלמיד/ה"
+          />
+          <PrintWorksheetLink contentRef={task.content_ref} label="🖨️ דף עבודה ריק" variant="text" />
+        </p>
         {/* decoding markings */}
         <section className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-5">
           <h2 className="mb-3 font-display text-base font-bold text-[color:var(--primary)]">

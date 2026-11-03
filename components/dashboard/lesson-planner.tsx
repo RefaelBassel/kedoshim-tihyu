@@ -7,6 +7,7 @@ import Wheel3D, { type WheelItem } from "./wheel-3d";
 import TicketsStrip from "./tickets-strip";
 import { nextIndex, projectorUrl } from "@/lib/lesson-flow";
 import { hasOpening } from "@/content/openings/registry";
+import PrintWorksheetLink from "@/components/dashboard/print-worksheet-link";
 
 // the one tool each block needs, in plain words
 export function toolsFor(kind: BlockKind, taskId: number): { href: string; label: string; newTab?: boolean; primary?: boolean }[] {
@@ -1156,6 +1157,7 @@ export function UnitPopover({
             <a href={`/dashboard/discussion/${unit.taskId}/board`} target="_blank" rel="noopener noreferrer" className="rounded-full border px-3 py-1" style={{ borderColor: KIND.discussion.color, color: KIND.discussion.color }}>🖥️ להקרין את לוח הדיון ↗</a>
             <a href={`/tasks/${unit.taskId}`} className="rounded-full px-3 py-1 text-white" style={{ background: KIND.study.color }}>📖 פתיחת המשימה</a>
             <a href={`/dashboard/content/${unit.ref}`} className="rounded-full border border-[color:var(--border)] px-3 py-1 text-[color:var(--primary)]">✏️ עריכת התוכן</a>
+            <PrintWorksheetLink contentRef={unit.ref} variant="outline" />
             {unit.ref === EXAM_UNIT_REF && <ExamLink />}
           </div>
         </>
@@ -1166,6 +1168,7 @@ export function UnitPopover({
           <div className="mt-3 flex flex-wrap gap-1.5 text-[11px] font-bold">
             {hasOpening(unit.ref) && <OpeningLink to={unit.ref} />}
             <a href={`/dashboard/content/${unit.ref}`} className="rounded-full border border-[color:var(--border)] px-3 py-1 text-[color:var(--primary)]">✏️ עריכת התוכן</a>
+            <PrintWorksheetLink contentRef={unit.ref} variant="outline" />
             {unit.ref === EXAM_UNIT_REF && <ExamLink />}
           </div>
         </>

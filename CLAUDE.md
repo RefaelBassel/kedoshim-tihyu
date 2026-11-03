@@ -196,3 +196,13 @@ a projected board never contains teacher input; the control is a separate page.
   The teacher chat does the same with `account_action` rename (userId + name, undoable).
 - A blank name is NULL; nameless accounts show their email (grey in teacher lists, components/student-name.tsx).
 - One-time seed (SEED_NAMES in lib/approval.ts): account 28 oragus2012@gmail.com → אור איגוס.
+
+## Printing a worksheet (issue #23)
+- `/dashboard/print/<ref>` (teacher only; a task id also works) — clean A4 RTL black-and-white worksheet of any unit, published or
+  not, from the registry with the teacher's edits applied (hidden questions out, added ones in). Opens the browser print dialog
+  on load (`?auto=0` skips it). Sections with titles, intro/case/source blocks (art and the passage are not printed), every
+  question with 3 writing lines per field / 6 for a question without fields or with `minWords`; pinned/auto verses boxed beside
+  the question (toggle "עם פסוקים / בלי פסוקים" = `?verses=0`). `?student=<userId>&task=<taskId>` prints one student's submission.
+- The "🖨️ הדפסה" button (components/dashboard/print-worksheet-link.tsx) is on /dashboard/task/<id>, /tasks/<id> (teacher, not
+  student mode), /dashboard/content (card) and /dashboard/content/<ref>, the lesson planner's unit popover, and the submission page.
+  The pre-built PDF/Word files (`npm run build:print`) stay as they were.

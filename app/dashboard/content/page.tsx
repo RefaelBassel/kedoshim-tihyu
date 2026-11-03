@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import PageShell from "@/components/page-shell";
 import { TASK_REGISTRY, positionLabel } from "@/content/tasks/registry";
+import PrintWorksheetLink from "@/components/dashboard/print-worksheet-link";
 import { getOverrides, applyOverrides } from "@/lib/content-overrides";
 
 // תוכן היחידות — one place to read and edit, for every unit in the library,
@@ -45,11 +46,16 @@ export default async function ContentHubPage() {
     >
       <div className="mx-auto max-w-3xl space-y-3">
         {rows.map((r) => (
-          <Link
+          <div
             key={r.ref}
-            href={`/dashboard/content/${r.ref}`}
-            className="block rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-4 transition hover:border-[color:var(--accent)]"
+            className="relative rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-4 transition hover:border-[color:var(--accent)]"
           >
+            {/* the whole card opens the unit; the print link sits above it */}
+            <Link
+              href={`/dashboard/content/${r.ref}`}
+              aria-label={r.title}
+              className="absolute inset-0 rounded-2xl"
+            />
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="font-display text-base font-bold text-[color:var(--primary)]">{r.title}</p>
@@ -70,7 +76,10 @@ export default async function ContentHubPage() {
                 )}
               </div>
             </div>
-          </Link>
+            <div className="relative mt-2 flex justify-end text-[11px] font-bold">
+              <PrintWorksheetLink contentRef={r.ref} variant="outline" />
+            </div>
+          </div>
         ))}
       </div>
     </PageShell>
