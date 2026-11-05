@@ -33,6 +33,7 @@ const STATUS_HE: Record<string, { label: string; tone: string }> = {
   merged: { label: "עלה לאתר ✓", tone: "var(--success)" },
   failed: { label: "הבנייה נכשלה — רפאל קיבל הודעה", tone: "var(--danger)" },
   paused: { label: "ממתינה בתור לבנייה — תצא מעצמה, בקשה אחת בכל פעם", tone: "var(--warning)" },
+  question: { label: "הבנייה שואלת שאלה — עני כאן בצ׳אט", tone: "var(--warning)" },
   closed: { label: "נסגר", tone: "var(--primary)" },
 };
 
@@ -49,6 +50,11 @@ export default function TeacherChat({ teacherName, compact = false }: { teacherN
   const [loaded, setLoaded] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
+  // the poll refreshes the messages (a build's question arrives as a message)
+  // only for the thread on screen and never while a turn is on its way
+  const threadRef = useRef<number | null>(null);
+  const busyRef = useRef(false);
+  busyRef.current = busy;
 
   const load = async (t?: number | null) => {
     const r = await fetch(`/api/teacher-chat${t ? `?thread=${t}` : ""}`, { cache: "no-store" });
@@ -60,6 +66,7 @@ export default function TeacherChat({ teacherName, compact = false }: { teacherN
     setGithub(Boolean(d.github));
     setThreads(d.threads ?? []);
     setThread(d.thread ?? null);
+    threadRef.current = d.thread ?? null;
     setLoaded(true);
   };
   const isLatest = thread == null || threads.length === 0 || thread === Math.max(...threads.map((t) => t.thread));
@@ -70,7 +77,12 @@ export default function TeacherChat({ teacherName, compact = false }: { teacherN
       fetch("/api/teacher-chat", { cache: "no-store" })
         .then((r) => r.json())
         .then((d) => {
-          if (d.ok) setCodeRequests(d.codeRequests);
+          if (!d.ok) return;
+          setCodeRequests(d.codeRequests);
+          if (!busyRef.current && d.thread === threadRef.current && Array.isArray(d.messages)) {
+            setMsgs(flatten(d.messages));
+            setActions(d.actions);
+          }
         })
         .catch(() => {});
     }, 60000);
