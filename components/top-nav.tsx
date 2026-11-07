@@ -46,6 +46,7 @@ export default async function TopNav() {
     { href: "/tasks", label: "משימות שוטפות" },
     { href: "/exams", label: "הכנות למבחנים" },
     { href: "/project", label: "הפרויקט" },
+    { href: "/amana", label: "📜 האמנה" },
     { href: "/rules", label: "כללי השיעור שלנו" },
     { href: "/messages", label: "קשר" },
   ];

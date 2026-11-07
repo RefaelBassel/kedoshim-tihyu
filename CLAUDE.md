@@ -197,6 +197,19 @@ a projected board never contains teacher input; the control is a separate page.
 - A blank name is NULL; nameless accounts show their email (grey in teacher lists, components/student-name.tsx).
 - One-time seed (SEED_NAMES in lib/approval.ts): account 28 oragus2012@gmail.com → אור איגוס.
 
+## The class charter — אמנת הכיתה (issue #27)
+- lib/amana.ts (+ lib/amana-shared.ts, migration 0019): clauses (number, wording, verse quote + source, unit ref, status
+  draft / discussion / presented / approved, teacher note, notes from the management meeting, date, "proposed by").
+  Teacher-only edits; one seed clause (nedava-3, draft) inserted once (amana_seeds).
+- Students: `/amana` (scroll design, unit + status tags, "חדש!" until seen — amana_seen, dashed slots for the units left
+  up to brit-2, "הצעות לסעיף הבא" with 👍 one per unit), a card on top of /tasks, a small card on /me, nav "📜 האמנה".
+- Proposals = answers to questions whose label contains "אמנת הכיתה" / "מהפסוק לבית הספר" (CHARTER_LABEL; the worksheet
+  editor has a "📜 שאלת אמנה" button), read live from task_answers (multi-field: the last field). Students see only
+  proposals the teacher marked shown (amana_proposals), nameless unless show_name.
+- Teacher: `/dashboard/amana` (?unit=<ref> from the lesson card's "📜 סעיף לאמנה" and the debate control), `/board`
+  (projector, polls, new clauses typed in), `/print?size=a4|a3` (approved only), `/api/amana/export` (text).
+  Chat tools: get_amana, get_amana_proposals, amana_clause (add/edit/delete/move), amana_proposal — undoable.
+
 ## Printing a worksheet (issue #23)
 - `/dashboard/print/<ref>` (teacher only; a task id also works) — clean A4 RTL black-and-white worksheet of any unit, published or
   not, from the registry with the teacher's edits applied (hidden questions out, added ones in). Opens the browser print dialog

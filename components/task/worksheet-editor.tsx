@@ -6,6 +6,7 @@ import type { TaskSection, QuestionBlock } from "@/content/tasks/types";
 import type { WorksheetEdits, UnitEdits } from "@/lib/content-overrides";
 import SaveButton from "@/components/save-button";
 import { formatVerseNums, parseVerseSpec } from "@/lib/verse-spec";
+import { CHARTER_LABEL, isCharterLabel } from "@/lib/amana-shared";
 
 // The teacher's in-place editor for a unit's worksheet — everything on it
 // is text she owns: the unit's title line (on the hub), each section's
@@ -353,7 +354,7 @@ export default function WorksheetEditor({
                 {mine.map((e) => (
                   <li key={e.key} className="rounded-xl border border-[color:var(--accent)]/50 bg-[color:var(--accent)]/5 p-3">
                     <div className="mb-1 flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-bold text-[color:var(--accent)]">✨ שאלה שלך</span>
+                      <span className="text-[11px] font-bold text-[color:var(--accent)]">{isCharterLabel(e.label) ? "📜 שאלת אמנה — התשובות נאספות כהצעות לאמנה" : "✨ שאלה שלך"}</span>
                       <button type="button" onClick={() => setExtra((x) => x.filter((y) => y.key !== e.key))} className="rounded-full border border-[color:var(--danger)]/50 px-3 py-0.5 text-[11px] font-bold text-[color:var(--danger)] hover:bg-[color:var(--danger)]/10">
                         למחוק
                       </button>
@@ -375,6 +376,25 @@ export default function WorksheetEditor({
                 className="mt-2 w-full rounded-xl border-2 border-dashed border-[color:var(--border)] py-2 text-xs font-bold text-[color:var(--primary)]/70 transition hover:border-[color:var(--accent)] hover:text-[color:var(--accent)]"
               >
                 + שאלה משלך לתת-משימה זו
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setExtra((x) => [
+                    ...x,
+                    {
+                      sectionKey: sec.key,
+                      key: `amana-${sec.key}-${Date.now().toString(36)}`,
+                      prompt: "איזה עיקרון למדתם מהפסוקים? איך הוא פותר מקרה מחיי בית הספר? נסחו במשפט אחד או שניים סעיף לאמנת הכיתה.",
+                      label: CHARTER_LABEL,
+                      icon: "leadership",
+                    },
+                  ])
+                }
+                title="התשובות לשאלה הזאת נאספות כהצעות לאמנת הכיתה"
+                className="mt-1.5 w-full rounded-xl border-2 border-dashed border-[#d9c3a5] py-2 text-xs font-bold text-[color:var(--accent)]/80 transition hover:border-[color:var(--accent)] hover:text-[color:var(--accent)]"
+              >
+                📜 שאלת אמנה (מהפסוק לבית הספר)
               </button>
             </div>
           );
