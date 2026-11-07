@@ -33,6 +33,22 @@ import { formatHebDateTime, israelLocalToUnix } from "./hebrew";
 import { applyExamPatch, getExam, listExams, questionNumbers, saveExam, totalPoints, EXAM_STATUS_LABEL, type ExamDoc, type ExamPatch } from "./exams";
 import { applyPrepPatch, getPrepForExam, prepClassProgress, savePrep, type PrepDoc, type PrepPatch } from "./exam-prep";
 import { SLIDE_BLOCK_ICON, SLIDE_BLOCK_KEYS, cleanSlide, getSlide, saveSlide, type SlideDoc } from "./class-slide";
+import {
+  CLAUSE_STATUS_META,
+  addClause,
+  cleanClauseInput,
+  deleteClause,
+  getClause,
+  listClauses,
+  moveClause,
+  proposalsForUnit,
+  proposalsOverview,
+  restoreClause,
+  setProposalFlags,
+  updateClause,
+  type Clause,
+  type ClauseInput,
+} from "./amana";
 
 // ריעות ↔ קלוד — the teacher's direct chat with Claude inside the site.
 // Whatever she wants changed, she writes here. Claude has TOOLS that are the
@@ -292,7 +308,7 @@ async function unitSnapshot(ref: string) {
 // --------------------------------------------------------------- tools ----
 // READ tools run at once. WRITE tools only PROPOSE: the server records an
 // action and tells Claude "proposed — waiting for the teacher's ✓".
-const READ_TOOLS = new Set(["list_units", "get_unit", "list_students", "class_progress", "list_tasks", "get_lesson_plan", "list_code_requests", "list_exams", "get_exam", "get_class_slide"]);
+const READ_TOOLS = new Set(["list_units", "get_unit", "list_students", "class_progress", "list_tasks", "get_lesson_plan", "list_code_requests", "list_exams", "get_exam", "get_class_slide", "get_amana", "get_amana_proposals"]);
 
 const PREP_ITEM_SCHEMA = {
   type: "object",
@@ -366,6 +382,16 @@ export const TOOLS: Anthropic.Tool[] = [
     name: "get_class_slide",
     description: "The class rules slide as it is now (/dashboard/slide): title, the three blocks task / rules / done with heading and lines, and the closing line (footer). Always call before edit_class_slide.",
     input_schema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_amana",
+    description: "The class charter (אמנת הכיתה, /amana for students, /dashboard/amana for the teacher) as it is now: every clause with clauseId, number (position), text, verseQuote, verseSource, unitRef, status (draft / discussion / presented / approved), teacherNote, adminNotes (notes from the meeting with the management), clauseDate, proposedBy; and how many are approved. Always call before amana_clause.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_amana_proposals",
+    description: "What the students proposed for the charter: their answers to the worksheet questions labelled \"מהפסוק לבית הספר · אמנת הכיתה\", per unit, with the student's name and userId, questionKey, the proposed clause, 👍 votes, and whether it is shown to the class (shown) and with the name (showName). ref = one unit; without ref = every unit that has a charter question.",
+    input_schema: { type: "object", properties: { ref: { type: "string" } }, additionalProperties: false },
   },
   // ---- write (proposals) ----
   {
@@ -533,6 +559,39 @@ export const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "amana_clause",
+    description: "Change the class charter (אמנת הכיתה). op=add: a new clause (text required; position = 1-based place, default at the end). op=edit: change fields of clauseId (only pass what changes — e.g. status alone to move it to \"presented\" / \"approved\", or adminNotes after the meeting with the management). op=delete: remove clauseId. op=move: put clauseId at position. Clause wording is the teacher's: write exactly what she asked, one or two sentences. status: draft = טיוטה, discussion = בדיון בכיתה, presented = הוצג להנהלה, approved = אושר. A clause added while the projector board is open is typed onto the screen. Call get_amana first.",
+    input_schema: {
+      type: "object",
+      properties: {
+        op: { type: "string", enum: ["add", "edit", "delete", "move"] },
+        clauseId: { type: "integer" },
+        position: { type: "integer" },
+        text: { type: "string" },
+        verseQuote: { type: "string", description: "a short quote of the grounding verse, with nikud when known" },
+        verseSource: { type: "string", description: "e.g. ויקרא ה׳, כ״ג" },
+        unitRef: { type: "string", description: "the unit (task ref) the clause was born in, e.g. nedava-3; \"\" = none" },
+        status: { type: "string", enum: ["draft", "discussion", "presented", "approved"] },
+        teacherNote: { type: "string", description: "optional note shown to students under the clause" },
+        adminNotes: { type: "string", description: "notes from the meeting with the school management (teacher only)" },
+        clauseDate: { type: "string", description: "YYYY-MM-DD" },
+        proposedBy: { type: "string", description: "optional student names shown as 'הוצע על ידי'" },
+      },
+      required: ["op"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "amana_proposal",
+    description: "Show a student's charter proposal to the class on /amana (shown) — nameless unless showName is true — or hide it again. ref, userId and questionKey come from get_amana_proposals.",
+    input_schema: {
+      type: "object",
+      properties: { ref: { type: "string" }, userId: { type: "integer" }, questionKey: { type: "string" }, shown: { type: "boolean" }, showName: { type: "boolean" } },
+      required: ["ref", "userId", "questionKey"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "undo_change",
     description: "Revert a change made earlier in this chat (its actionId was returned when it ran). Without actionId: the most recent revertible change. Use when the teacher asks to cancel / undo / put back.",
     input_schema: { type: "object", properties: { actionId: { type: "integer" } }, additionalProperties: false },
@@ -629,6 +688,59 @@ function diffSlide(before: SlideDoc, after: SlideDoc): Change[] {
   return out;
 }
 
+// ------------------------------------------------------------- charter ----
+const CLAUSE_FIELD_HE: Record<string, string> = {
+  text: "נוסח",
+  verseQuote: "הפסוק",
+  verseSource: "המקור",
+  unitRef: "יחידה",
+  status: "סטטוס",
+  teacherNote: "הערת המורה",
+  adminNotes: "הערות מהפגישה עם ההנהלה",
+  clauseDate: "תאריך",
+  proposedBy: "הוצע על ידי",
+};
+function clauseFieldText(k: string, v: unknown): string | null {
+  if (v == null || v === "") return null;
+  if (k === "status") return CLAUSE_STATUS_META[v as Clause["status"]]?.label ?? String(v);
+  return String(v);
+}
+function clauseInputOf(input: Record<string, unknown>): ClauseInput {
+  const raw: Record<string, unknown> = {};
+  for (const k of Object.keys(CLAUSE_FIELD_HE)) if (input[k] !== undefined) raw[k] = input[k];
+  return cleanClauseInput(raw);
+}
+async function amanaProposal(input: Record<string, unknown>): Promise<{ summary: string; preview: unknown } | { error: string }> {
+  const op = String(input.op);
+  if (op === "add") {
+    const c = clauseInputOf(input);
+    if (!c.text) return { error: "text required" };
+    const n = (await listClauses()).length;
+    const changes: Change[] = [{ what: `סעיף חדש באמנה (${input.position ?? n + 1})`, before: null, after: c.text }];
+    for (const [k, v] of Object.entries(c)) if (k !== "text" && clauseFieldText(k, v)) changes.push({ what: CLAUSE_FIELD_HE[k], before: null, after: clauseFieldText(k, v) });
+    return { summary: `הוספת סעיף לאמנת הכיתה`, preview: { unit: "אמנת הכיתה", changes } };
+  }
+  const clause = await getClause(Number(input.clauseId));
+  if (!clause) return { error: "clause not found — call get_amana for the clauseId" };
+  if (op === "delete") return { summary: `מחיקת סעיף ${clause.position} מהאמנה`, preview: { unit: "אמנת הכיתה", changes: [{ what: `סעיף ${clause.position}`, before: clause.text, after: null }] } };
+  if (op === "move") {
+    const to = Number(input.position);
+    if (!Number.isFinite(to)) return { error: "position required" };
+    return { summary: `העברת סעיף ${clause.position} למקום ${to}`, preview: { unit: "אמנת הכיתה", changes: [{ what: "מקום הסעיף", before: String(clause.position), after: String(to) }] } };
+  }
+  if (op === "edit") {
+    const patch = clauseInputOf(input);
+    const changes: Change[] = [];
+    for (const [k, v] of Object.entries(patch)) {
+      const before = (clause as unknown as Record<string, unknown>)[k];
+      if ((before ?? "") !== (v ?? "")) changes.push({ what: `סעיף ${clause.position} — ${CLAUSE_FIELD_HE[k]}`, before: clauseFieldText(k, before), after: clauseFieldText(k, v) });
+    }
+    if (!changes.length) return { error: "nothing to change" };
+    return { summary: `עריכת סעיף ${clause.position} באמנה (${changes.length} שינויים)`, preview: { unit: "אמנת הכיתה", changes } };
+  }
+  return { error: `unknown op ${op} (add / edit / delete / move)` };
+}
+
 // ------------------------------------------------------- read executors ----
 async function runReadTool(name: string, input: Record<string, unknown>, userId: number): Promise<unknown> {
   switch (name) {
@@ -663,6 +775,25 @@ async function runReadTool(name: string, input: Record<string, unknown>, userId:
       return await getPlan();
     case "get_class_slide":
       return await getSlide();
+    case "get_amana": {
+      const clauses = await listClauses();
+      return {
+        approved: clauses.filter((c) => c.status === "approved").length,
+        total: clauses.length,
+        clauses: clauses.map((c) => ({ clauseId: c.id, ...c, id: undefined, statusLabel: CLAUSE_STATUS_META[c.status].label })),
+      };
+    }
+    case "get_amana_proposals": {
+      const ref = typeof input.ref === "string" ? str(input.ref, 80) : "";
+      const units = ref ? [await proposalsForUnit(ref)].filter(Boolean) : await proposalsOverview();
+      if (!units.length) return ref ? { error: "unit not found" } : { units: [], note: "no unit has a charter question yet" };
+      return units.map((u) => ({
+        ref: u!.ref,
+        title: u!.title,
+        questions: u!.questions,
+        proposals: u!.proposals.map((p) => ({ userId: p.userId, name: p.name, class: p.klass, questionKey: p.questionKey, text: p.text, parts: p.parts.length ? p.parts : undefined, votes: p.votes, shown: p.shown, showName: p.showName })),
+      }));
+    }
     case "list_code_requests":
       return (await listCodeRequests(userId)).map((c) => ({ id: c.id, title: c.title, status: c.status, issueUrl: c.issueUrl, prUrl: c.prUrl, previewUrl: c.previewUrl, note: c.note }));
     case "list_exams": {
@@ -888,6 +1019,20 @@ async function buildProposal(name: string, input: Record<string, unknown>): Prom
       if (changes.length === 0) return { error: "nothing to change" };
       return { summary: `שקופית כללי השיעור (${changes.length} שינויים)`, preview: { unit: "שקופית כללי השיעור", changes } };
     }
+    case "amana_clause":
+      return amanaProposal(input);
+    case "amana_proposal": {
+      const ref = str(input.ref, 80);
+      const unit = await proposalsForUnit(ref);
+      if (!unit) return { error: "unit not found" };
+      const p = unit.proposals.find((x) => x.userId === Number(input.userId) && x.questionKey === String(input.questionKey));
+      if (!p) return { error: "proposal not found — call get_amana_proposals" };
+      const changes: Change[] = [];
+      if (typeof input.shown === "boolean" && input.shown !== p.shown) changes.push({ what: `ההצעה של ${p.name}`, before: p.shown ? "מוצגת לכיתה" : "מוסתרת", after: input.shown ? "מוצגת לכיתה" : "מוסתרת" });
+      if (typeof input.showName === "boolean" && input.showName !== p.showName) changes.push({ what: "שם התלמיד/ה ליד ההצעה", before: p.showName ? "מוצג" : "בלי שם", after: input.showName ? "מוצג" : "בלי שם" });
+      if (!changes.length) return { error: "nothing to change" };
+      return { summary: `הצעה לאמנה: ${p.text.slice(0, 60)}`, preview: { unit: "אמנת הכיתה — הצעות", changes } };
+    }
     case "answer_build_question": {
       const answer = str(input.answer, 20_000);
       if (!answer) return { error: "answer required" };
@@ -1056,6 +1201,48 @@ export async function applyAction(actionId: number, userId: number): Promise<Act
         result = { page: "/dashboard/slide" };
         break;
       }
+      case "amana_clause": {
+        const op = String(input.op);
+        if (op === "add") {
+          const pos = input.position != null ? Number(input.position) : undefined;
+          const c = await addClause(clauseInputOf(input), userId, pos);
+          undo = { deleteClauseId: c.id };
+          result = { clauseId: c.id, position: c.position, page: "/amana" };
+        } else {
+          const clause = await getClause(Number(input.clauseId));
+          if (!clause) throw new Error("הסעיף לא נמצא");
+          if (op === "delete") {
+            await deleteClause(clause.id);
+            undo = { restoreClause: clause };
+            result = { deleted: clause.position };
+          } else if (op === "move") {
+            await moveClause(clause.id, Number(input.position));
+            undo = { clauseId: clause.id, position: clause.position };
+            result = { position: (await getClause(clause.id))?.position };
+          } else if (op === "edit") {
+            const before: ClauseInput = {};
+            const patch = clauseInputOf(input);
+            for (const k of Object.keys(patch)) (before as Record<string, unknown>)[k] = (clause as unknown as Record<string, unknown>)[k] ?? "";
+            await updateClause(clause.id, patch);
+            undo = { clauseId: clause.id, before };
+            result = { clauseId: clause.id, page: "/amana" };
+          } else throw new Error("פעולה לא ידועה");
+        }
+        break;
+      }
+      case "amana_proposal": {
+        const ref = str(input.ref, 80);
+        const unit = await proposalsForUnit(ref);
+        const p = unit?.proposals.find((x) => x.userId === Number(input.userId) && x.questionKey === String(input.questionKey));
+        if (!p) throw new Error("ההצעה לא נמצאה");
+        undo = { ref, userId: p.userId, questionKey: p.questionKey, shown: p.shown, showName: p.showName };
+        const flags = await setProposalFlags(ref, p.userId, p.questionKey, {
+          shown: typeof input.shown === "boolean" ? input.shown : undefined,
+          showName: typeof input.showName === "boolean" ? input.showName : undefined,
+        });
+        result = { shown: flags.shown, showName: flags.showName, page: "/amana" };
+        break;
+      }
       case "answer_build_question": {
         const id = Number(input.codeRequestId);
         const answer = str(input.answer, 20_000);
@@ -1165,6 +1352,15 @@ export async function undoAction(actionId: number, userId: number): Promise<Acti
       break;
     case "edit_class_slide":
       await saveSlide(cleanSlide(undo.slide), userId);
+      break;
+    case "amana_clause":
+      if (undo.deleteClauseId != null) await deleteClause(Number(undo.deleteClauseId));
+      else if (undo.restoreClause) await restoreClause(undo.restoreClause as Clause);
+      else if (undo.before) await updateClause(Number(undo.clauseId), undo.before as ClauseInput);
+      else if (undo.position != null) await moveClause(Number(undo.clauseId), Number(undo.position));
+      break;
+    case "amana_proposal":
+      await setProposalFlags(String(undo.ref), Number(undo.userId), String(undo.questionKey), { shown: Boolean(undo.shown), showName: Boolean(undo.showName) });
       break;
     default:
       throw new Error("אי אפשר לבטל את הפעולה הזאת");
@@ -1435,12 +1631,13 @@ export async function refreshCodeRequests(userId: number): Promise<CodeRequestRo
 const SYSTEM = `אתה קלוד — העוזר של המורה באתר "${SITE.name}" (תוכנית בתנ"ך לכיתה ${SITE.grade}, תיכון שחרית). המורה כותבת לך כאן ישירות כל מה שהיא רוצה לשנות, לעדכן, לבדוק או לשפר — ואתה מבצע. אין מתווך: מה שהיא מבקשת קורה.
 
 איך זה עובד:
-- כלי קריאה (list_units, get_unit, list_students, list_tasks, class_progress, get_lesson_plan, list_code_requests, list_exams, get_exam, get_class_slide) פועלים מיד — השתמש בהם בחופשיות כדי לדעת את המצב האמיתי לפני שאתה מציע משהו.
-- כלי שינוי (edit_unit_texts, edit_review, edit_discussion, reset_unit_edits, publish_unit, set_due_date, cancel_task, republish_task, mark_unit, mark_done_up_to, account_action, send_message, edit_exam, edit_exam_prep, edit_class_slide, request_code_change) מבצעים מיד, בלי שום אישור — זה צ׳אט רגיל: היא כותבת, אתה עושה, ומספר במשפט-שניים מה בדיוק שונה (ציטוט קצר של הנוסח החדש כשזה טקסט). אל תשאל "האם לבצע?" ואל תציג אפשרויות לבחירה — רק אם הבקשה באמת דו-משמעית, שאל שאלה אחת קצרה. כל שינוי ניתן לביטול עם undo_change כשהיא מבקשת לבטל / להחזיר.
+- כלי קריאה (list_units, get_unit, list_students, list_tasks, class_progress, get_lesson_plan, list_code_requests, list_exams, get_exam, get_class_slide, get_amana, get_amana_proposals) פועלים מיד — השתמש בהם בחופשיות כדי לדעת את המצב האמיתי לפני שאתה מציע משהו.
+- כלי שינוי (edit_unit_texts, edit_review, edit_discussion, reset_unit_edits, publish_unit, set_due_date, cancel_task, republish_task, mark_unit, mark_done_up_to, account_action, send_message, edit_exam, edit_exam_prep, edit_class_slide, amana_clause, amana_proposal, request_code_change) מבצעים מיד, בלי שום אישור — זה צ׳אט רגיל: היא כותבת, אתה עושה, ומספר במשפט-שניים מה בדיוק שונה (ציטוט קצר של הנוסח החדש כשזה טקסט). אל תשאל "האם לבצע?" ואל תציג אפשרויות לבחירה — רק אם הבקשה באמת דו-משמעית, שאל שאלה אחת קצרה. כל שינוי ניתן לביטול עם undo_change כשהיא מבקשת לבטל / להחזיר.
 - שינוי שם התצוגה של תלמיד/ה (account_action עם action=rename, userId ו-name — השם המלא בעברית): קודם list_students כדי למצוא את החשבון (חשבון בלי שם מופיע עם name ריק — לזהות לפי המייל). השם שהמורה קבעה גובר על השם של התלמיד/ה ומופיע בכל האתר.
 - איחוד חשבונות כפולים של תלמיד/ה (account_action עם action=merge): קודם list_students, ורק כשברור איזה חשבון נשאר (keepUserId) ואיזה מתמזג (userId). זו הפעולה היחידה שלא ניתנת לביטול — אמור/אמרי זאת, וספר/י בקצרה מה עבר (הכלי מחזיר סיכום).
 - מבחנים: המבחן גלוי למורה בלבד — לעולם לא לתלמידים. לפני edit_exam או edit_exam_prep — תמיד get_exam קודם (מזהי השאלות, הנוסח והניקוד הנוכחיים). כשמשנים ניקוד — אמור/אמרי מה הסכום החדש. דף ההכנה מוסתר עד שהיא מבקשת לפרסם (publish=true); שאלות המבחן עצמן לא נכנסות לדף ההכנה.
 - שקופית כללי השיעור (/dashboard/slide, למורה בלבד, מוקרנת בתחילת שיעור): כותרת, שלושה בלוקים — task (📝 המשימה), rules (📏 הכללים), done (🏠 סיימת?) — ושורת סיום. כשהיא מבקשת לעדכן אותה לשיעור הבא — get_class_slide ואז edit_class_slide (lines מחליף את כל השורות של הבלוק).
+- אמנת הכיתה (פרויקט שנתי: בכל יחידה עיקרון מהפסוקים → מקרה מבית הספר → סעיף לאמנה; תלמידים רואים ב-/amana, המורה מנהלת ב-/dashboard/amana, הקרנה ב-/dashboard/amana/board): "תוסיף לאמנה את הסעיף…" — get_amana ואז amana_clause עם op=add (הנוסח בדיוק כפי שביקשה, ואם ידוע — הפסוק המבסס, המקור והיחידה). שינוי סטטוס (טיוטה / בדיון בכיתה / הוצג להנהלה / אושר) או הערות מהפגישה עם ההנהלה — amana_clause עם op=edit. "מה התלמידים הציעו ביחידה הזאת?" — get_amana_proposals עם ref, וסכם בקצרה את הכיוונים העיקריים עם מספר ה-👍. להציג הצעה לכיתה (בלי שם, אלא אם ביקשה) — amana_proposal. התלמידים לא עורכים סעיפים — רק רואים, מציעים בשאלות "מהפסוק לבית הספר · אמנת הכיתה" ונותנים 👍. שאלת אמנה ביחידה = שאלה שהתווית (label) שלה "מהפסוק לבית הספר · אמנת הכיתה" (אפשר להוסיף כזו ב-edit_unit_texts עם extra ו-label הזה).
 - לפני עריכת טקסט ביחידה — תמיד get_unit קודם, כדי לערוך את הנוסח הנוכחי ולהשתמש במפתחות (key) הנכונים של השאלות והבלוקים.
 - הפסוקים שמוצגים ליד שאלה (או ליד שדה בתוך שאלה) נערכים ב-edit_unit_texts דרך verses: מפתח "q-key" או "q-key:field-key", וערך כמו "ט״ז–כ׳" או "ד׳, כ״ג–כ״ד, ל״ב" (מספרי פסוקים בפרק הראשי של היחידה); "" מסיר את הפסוקים המוצמדים (ואז מוצגים אוטומטית הפסוקים שנוסח השאלה מזכיר); "none" מכבה את תיבת הפסוקים לגמרי (למשל בשאלת התמצאות בתנ״ך).
 - כשהבקשה דורשת שינוי באתר עצמו (כפתור, מסך, התנהגות, עיצוב, דבר שאין לו כלי) — השתמש ב-request_code_change עם כותרת קצרה ומפרט מלא בעברית: איפה באתר, מה בדיוק, למה, מה התלמידים יראו ומה המורה. הבקשה נבנית ועולה לאתר אוטומטית (בדרך כלל תוך 10–30 דקות); היא תראה את הסטטוס בכרטיס. דווח לה בדיוק מה הכלי החזיר: אם status=open — "נשלחה לבנייה האוטומטית" עם הקישור; אם status=queued — "נרשמה וממתינה בתור, תישלח מעצמה כשהבקשה הקודמת תסתיים"; אם יש note עם שגיאה — אמור שהשליחה נכשלה ושהמערכת תנסה שוב מעצמה. אין "מפתחים" ואין מתווך אנושי — אל תכתוב שאתה "מעביר למפתחים"; זה צינור אוטומטי שאתה עצמך מפעיל. אם לא ברור מה בדיוק היא רוצה — שאל שאלה אחת ממוקדת לפני שאתה שולח. אם המורה מבקשת שהשינוי ייעשה גם (או רק) באתר האחות בינת התורה — השתמש ב-targets (למשל ["this", "binat-hatorah"], או ["binat-hatorah"] בלבד). באתר האחר קלוד אחר בונה לפי המפרט בלבד ואינו רואה את האתר הזה, לכן המפרט חייב להיות מלא ועצמאי, בלי "כמו כאן" ובלי שמות של קבצים מכאן. דווח לה על כל בקשה בנפרד לפי requests בתוצאה. בקשת קוד עולה דולרים, ועבודה בכלים שלך עולה אגורות: לפני request_code_change בדוק אם אחד הכלים שלך עושה את זה (נוסח, שאלות, תוכן יחידה, מועדים, פרסום, ביטול, הודעות, חשבונות) — אם כן, עשה זאת בכלי ואל תשלח בקשת קוד. בקשת קוד רק כשצריך באמת קוד חדש: מסך, כפתור, התנהגות או מבנה נתונים שאין להם כלי. בכל בקשת קוד ציין size: small לשינוי ממוקד (רוב הבקשות), large רק לפיצ׳ר חדש שנוגע בכמה מסכים או במבנה הנתונים. בקשה חדשה בזמן שקודמת עוד ממתינה בתור מצורפת אליה אוטומטית — אמור לה זאת לפי message. אם המורה הדביקה בצ׳אט טקסט ארוך (מבחן, דף הכנה, נוסח שיש להעתיק מילה במילה) — אל תעתיק אותו לגוף הבקשה: ההודעה המקורית שלה מצורפת לבקשה אוטומטית, מילה במילה. בגוף כתוב רק מה לעשות עם הטקסט ואיפה. הודעה בצ׳אט שמתחילה ב-״❓ שאלה מהבנייה״ היא שאלה שהבנייה האוטומטית שאלה ועצרה בגללה. כשהמורה עונה עליה, העבר את התשובה מיד עם answer_build_question (codeRequestId = מספר הבקשה שבהודעה), מנוסחת מלאה ועצמאית; אם התשובה נמצאת בכלים שלך (נוסח, תוכן יחידה), צרף את התוכן עצמו. אל תשלח בקשת קוד חדשה במקום זה.
@@ -1448,8 +1645,8 @@ const SYSTEM = `אתה קלוד — העוזר של המורה באתר "${SITE.
 
 סגנון: עברית, חם, קצר ופשוט. בלי Markdown (בלי כוכביות וכותרות); רשימות עם מקפים אם צריך. במבט אחד מבינים. כשמציעים ניסוח חדש — כתוב אותו במלואו. אל תמציא תוכן לימודי שהיא לא ביקשה; כשהיא מבקשת "לשפר" — הצע נוסח והסבר במשפט מה שונה.
 
-מפת האתר (למורה): דשבורד מורה /dashboard · רשימת תלמידים ואישורי כניסה /dashboard/students · תוכן היחידות /dashboard/content ועריכה בעמוד כל משימה · מהלך השיעור (גלגלים: חזרה/דיון/לימוד, המסע) /dashboard/lesson · מצגת חזרה /dashboard/review/<taskId> · מצגת פתיחה /dashboard/opening/<taskId או ref> (רק ביחידות שיש להן, כרגע vayikra-16-5) · שקופית כללי השיעור /dashboard/slide (עריכה בכפתור בפינה או כאן בצ׳אט) ·כרטיסי כניסה ובקרת דיון /dashboard/discussion/<taskId>/control · לוח דיון מוקרן /dashboard/discussion/<taskId>/board · לוח כיתה מוקרן /dashboard/class-board/<taskId> · הגשות /dashboard/submission/<taskId>/<userId> · מבחנים (למורה בלבד: עריכה, מחוון, הדפסה, ודף ההכנה לתלמידים עם פרסום ומעקב) /dashboard/exams · קשר (צ׳אט אישי וקבוצתי) /messages · הצ׳אט הזה /dashboard/chat.
-לתלמידים: המשימות /tasks, משימה /tasks/<id> (קריאה עם המורה מתנ"ך פיזי; באתר דף עבודה: הבנת הנקרא, שתי שאלות מיומנות, בניית טיעון שמזכה בכרטיס כניסה לדיון; עזרה קטנה מקלוד בכל שאלה; הגשה וביטול הגשה עד המועד), עמוד אישי /me, קשר /messages. חשבון גוגל חדש ממתין לאישור המורה.
+מפת האתר (למורה): דשבורד מורה /dashboard · רשימת תלמידים ואישורי כניסה /dashboard/students · תוכן היחידות /dashboard/content ועריכה בעמוד כל משימה · מהלך השיעור (גלגלים: חזרה/דיון/לימוד, המסע) /dashboard/lesson · מצגת חזרה /dashboard/review/<taskId> · מצגת פתיחה /dashboard/opening/<taskId או ref> (רק ביחידות שיש להן, כרגע vayikra-16-5) · שקופית כללי השיעור /dashboard/slide (עריכה בכפתור בפינה או כאן בצ׳אט) · אמנת הכיתה /dashboard/amana (סעיפים, הצעות התלמידים, מעקב מול ההנהלה, גרסה לעיצוב A4/A3 וייצוא טקסט; הקרנה /dashboard/amana/board; לתלמידים /amana) ·כרטיסי כניסה ובקרת דיון /dashboard/discussion/<taskId>/control · לוח דיון מוקרן /dashboard/discussion/<taskId>/board · לוח כיתה מוקרן /dashboard/class-board/<taskId> · הגשות /dashboard/submission/<taskId>/<userId> · מבחנים (למורה בלבד: עריכה, מחוון, הדפסה, ודף ההכנה לתלמידים עם פרסום ומעקב) /dashboard/exams · קשר (צ׳אט אישי וקבוצתי) /messages · הצ׳אט הזה /dashboard/chat.
+לתלמידים: המשימות /tasks, משימה /tasks/<id> (קריאה עם המורה מתנ"ך פיזי; באתר דף עבודה: הבנת הנקרא, שתי שאלות מיומנות, בניית טיעון שמזכה בכרטיס כניסה לדיון; עזרה קטנה מקלוד בכל שאלה; הגשה וביטול הגשה עד המועד), עמוד אישי /me, אמנת הכיתה /amana (צפייה, הצעות שהמורה הציגה ו-👍), קשר /messages. חשבון גוגל חדש ממתין לאישור המורה.
 
 היחידות (ref — כותרת):
 ${unitsMap()}`;

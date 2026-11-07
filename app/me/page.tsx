@@ -7,6 +7,7 @@ import ContinueFab from "@/components/continue-fab";
 import QuestionBank from "@/components/question-bank";
 import AddressFormPicker from "@/components/address-form-picker";
 import MeReflections from "@/components/me-reflections";
+import CharterCard from "@/components/amana/charter-card";
 
 // row shape for the archive list + the trend chart's initial points
 interface ReflectionPoint {
@@ -170,6 +171,9 @@ export default async function MePage() {
             </Link>
           )
         )}
+
+        {/* the class charter, growing unit by unit */}
+        <CharterCard size="small" />
 
         {/* stat tiles */}
         <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4">

@@ -1159,6 +1159,7 @@ export function UnitPopover({
             <a href={`/dashboard/content/${unit.ref}`} className="rounded-full border border-[color:var(--border)] px-3 py-1 text-[color:var(--primary)]">✏️ עריכת התוכן</a>
             <PrintWorksheetLink contentRef={unit.ref} variant="outline" />
             {unit.ref === EXAM_UNIT_REF && <ExamLink />}
+            <AmanaLinks unitRef={unit.ref} />
           </div>
         </>
       ) : (
@@ -1170,6 +1171,7 @@ export function UnitPopover({
             <a href={`/dashboard/content/${unit.ref}`} className="rounded-full border border-[color:var(--border)] px-3 py-1 text-[color:var(--primary)]">✏️ עריכת התוכן</a>
             <PrintWorksheetLink contentRef={unit.ref} variant="outline" />
             {unit.ref === EXAM_UNIT_REF && <ExamLink />}
+            <AmanaLinks unitRef={unit.ref} />
           </div>
         </>
       )}
@@ -1184,6 +1186,20 @@ function ExamLink() {
     <a href="/dashboard/exams" className="rounded-full border-2 border-[color:var(--primary)] px-3 py-1 text-[color:var(--primary)]">
       🧪 מבחן ודף הכנה — ויקרא ט״ז
     </a>
+  );
+}
+
+// אמנת הכיתה: the unit's proposals (and "הפוך לסעיף") + the projector board
+function AmanaLinks({ unitRef }: { unitRef: string }) {
+  return (
+    <>
+      <a href={`/dashboard/amana?unit=${encodeURIComponent(unitRef)}`} className="rounded-full border-2 border-[#c79a6b] bg-[#fdf3e1] px-3 py-1 text-[#8a5c37]">
+        📜 סעיף לאמנה
+      </a>
+      <a href="/dashboard/amana/board" target="_blank" rel="noopener noreferrer" className="rounded-full border border-[#c79a6b] px-3 py-1 text-[#8a5c37]">
+        🖥️ הקרנת האמנה ↗
+      </a>
+    </>
   );
 }
 

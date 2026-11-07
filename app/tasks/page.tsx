@@ -2,6 +2,7 @@ import Link from "next/link";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import PageShell from "@/components/page-shell";
+import CharterCard from "@/components/amana/charter-card";
 import {
   tasksForStudent,
   allTasksWithStats,
@@ -36,6 +37,7 @@ export default async function TasksPage() {
           : "משימות הלמידה שהוקצו לך — מה בלימוד, מה הוגש, ומה ממתין"
       }
     >
+      <CharterCard />
       {isTeacher ? (
         <TeacherView />
       ) : (

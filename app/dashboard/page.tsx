@@ -126,6 +126,12 @@ export default async function DashboardPage() {
           🪧 שקופית כללים
         </Link>
         <Link
+          href="/dashboard/amana"
+          className="rounded-full border-2 border-[#c79a6b] bg-[#fdf3e1] px-5 py-2 text-sm font-bold text-[#8a5c37] transition hover:bg-[#fbe7c8]"
+        >
+          📜 אמנת הכיתה — סעיפים, הצעות, הנהלה
+        </Link>
+        <Link
           href="/dashboard/chat"
           className="rounded-full px-5 py-2 text-sm font-bold text-white shadow transition hover:scale-[1.02]"
           style={{ background: "linear-gradient(135deg, var(--accent), var(--primary))" }}

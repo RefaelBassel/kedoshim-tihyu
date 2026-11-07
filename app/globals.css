@@ -206,6 +206,23 @@ body {
 .dock-in { animation: dock-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
 @media (prefers-reduced-motion: reduce) { .dock-in { animation: none; } }
 
+/* אמנת הכיתה (/amana, /dashboard/amana/board): a new clause unrolls onto
+   the scroll; the "חדש!" badge glows; the board's typing caret blinks. */
+@keyframes amana-in {
+  0% { opacity: 0; transform: translateY(-10px) scaleY(0.6); filter: blur(3px); }
+  60% { opacity: 1; filter: blur(0); }
+  100% { opacity: 1; transform: none; }
+}
+.amana-in { animation: amana-in 0.9s cubic-bezier(0.22, 1, 0.36, 1) both; transform-origin: top; }
+@keyframes amana-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(185, 106, 59, 0.55); }
+  50% { box-shadow: 0 0 0 7px rgba(185, 106, 59, 0); }
+}
+.amana-glow { animation: amana-glow 1.6s ease-out infinite; }
+@keyframes amana-caret { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+.amana-caret { animation: amana-caret 0.8s steps(1) infinite; }
+@media (prefers-reduced-motion: reduce) { .amana-in, .amana-glow, .amana-caret { animation: none; } }
+
 /* paste defence: while the answer guard is on (students, before submission)
    question text cannot be selected; verses and sources stay selectable */
 [data-guard="on"] .q-text,
