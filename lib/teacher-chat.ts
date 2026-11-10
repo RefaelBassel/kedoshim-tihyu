@@ -29,6 +29,8 @@ import {
 import { approveUser, blockUser, listAccounts, makeStudent, makeTeacher, preApproveEmail, renameUser, restoreUserName, unblockUser } from "./approval";
 import { mergeAccounts, planMerge } from "./account-merge";
 import { sendGroupMessage, sendMessage } from "./messages";
+import { skillsReport } from "./skills-report";
+import { MIN_ANSWERS } from "./skills-map";
 import { formatHebDateTime, israelLocalToUnix } from "./hebrew";
 import { applyExamPatch, getExam, listExams, questionNumbers, saveExam, totalPoints, EXAM_STATUS_LABEL, type ExamDoc, type ExamPatch } from "./exams";
 import { applyPrepPatch, getPrepForExam, prepClassProgress, savePrep, type PrepDoc, type PrepPatch } from "./exam-prep";
@@ -308,7 +310,7 @@ async function unitSnapshot(ref: string) {
 // --------------------------------------------------------------- tools ----
 // READ tools run at once. WRITE tools only PROPOSE: the server records an
 // action and tells Claude "proposed — waiting for the teacher's ✓".
-const READ_TOOLS = new Set(["list_units", "get_unit", "list_students", "class_progress", "list_tasks", "get_lesson_plan", "list_code_requests", "list_exams", "get_exam", "get_class_slide", "get_amana", "get_amana_proposals"]);
+const READ_TOOLS = new Set(["list_units", "get_unit", "list_students", "class_progress", "list_tasks", "get_lesson_plan", "list_code_requests", "list_exams", "get_exam", "get_class_slide", "get_amana", "get_amana_proposals", "skills_report"]);
 
 const PREP_ITEM_SCHEMA = {
   type: "object",
@@ -392,6 +394,19 @@ export const TOOLS: Anthropic.Tool[] = [
     name: "get_amana_proposals",
     description: "What the students proposed for the charter: their answers to the worksheet questions labelled \"מהפסוק לבית הספר · אמנת הכיתה\", per unit, with the student's name and userId, questionKey, the proposed clause, 👍 votes, and whether it is shown to the class (shown) and with the name (showName). ref = one unit; without ref = every unit that has a charter question.",
     input_schema: { type: "object", properties: { ref: { type: "string" } }, additionalProperties: false },
+  },
+  {
+    name: "skills_report",
+    description: "Skills report (/dashboard/skills): per student and skill group (הבנת הנקרא, הבנת הנושא והעיקר, טעמי המקרא, התמצאות בתנ״ך, שפה ומילה מנחה, טיעון, אחר) the mean of the lenient answer checks (0–100) with the number of answers it rests on, plus submitted/due tasks, average work minutes per submission, empty submissions, strongest and weakest skill, and the class mean per skill. Cells with fewer than 3 answers are marked lowData. Optional filters: refs (unit content refs, from list_units), from / to (YYYY-MM-DD, task due date).",
+    input_schema: {
+      type: "object",
+      properties: {
+        refs: { type: "array", items: { type: "string" } },
+        from: { type: "string" },
+        to: { type: "string" },
+      },
+      additionalProperties: false,
+    },
   },
   // ---- write (proposals) ----
   {
@@ -781,6 +796,31 @@ async function runReadTool(name: string, input: Record<string, unknown>, userId:
         approved: clauses.filter((c) => c.status === "approved").length,
         total: clauses.length,
         clauses: clauses.map((c) => ({ clauseId: c.id, ...c, id: undefined, statusLabel: CLAUSE_STATUS_META[c.status].label })),
+      };
+    }
+    case "skills_report": {
+      const date = (v: unknown, time: string) => {
+        const s = str(v, 10);
+        return /^\d{4}-\d{2}-\d{2}$/.test(s) ? israelLocalToUnix(s, time) : undefined;
+      };
+      const refs = Array.isArray(input.refs) ? input.refs.map((r) => str(r, 80)).filter(Boolean) : [];
+      const rep = await skillsReport({ refs, from: date(input.from, "00:00"), to: date(input.to, "23:59") });
+      const name = (k: string | null) => rep.groups.find((g) => g.key === k)?.title ?? null;
+      return {
+        tasks: rep.tasks.map((t) => ({ taskId: t.taskId, ref: t.ref, title: t.title })),
+        uncheckedAnswers: rep.unchecked,
+        classAverage: Object.fromEntries(rep.groups.map((g) => [g.title, rep.classCells[g.key].avg == null ? null : { avg: rep.classCells[g.key].avg, answers: rep.classCells[g.key].n }])),
+        students: rep.students.map((s) => ({
+          userId: s.userId,
+          name: s.name,
+          class: s.klass,
+          skills: Object.fromEntries(rep.groups.filter((g) => s.cells[g.key].n > 0).map((g) => [g.title, { avg: s.cells[g.key].avg, answers: s.cells[g.key].n, lowData: s.cells[g.key].n < MIN_ANSWERS || undefined }])),
+          submitted: `${s.submitted}/${s.due}`,
+          avgWorkMinutes: s.avgMinutes,
+          emptySubmissions: s.emptySubmissions,
+          strongest: name(s.strongest),
+          needsWork: name(s.weakest),
+        })),
       };
     }
     case "get_amana_proposals": {
@@ -1631,7 +1671,7 @@ export async function refreshCodeRequests(userId: number): Promise<CodeRequestRo
 const SYSTEM = `אתה קלוד — העוזר של המורה באתר "${SITE.name}" (תוכנית בתנ"ך לכיתה ${SITE.grade}, תיכון שחרית). המורה כותבת לך כאן ישירות כל מה שהיא רוצה לשנות, לעדכן, לבדוק או לשפר — ואתה מבצע. אין מתווך: מה שהיא מבקשת קורה.
 
 איך זה עובד:
-- כלי קריאה (list_units, get_unit, list_students, list_tasks, class_progress, get_lesson_plan, list_code_requests, list_exams, get_exam, get_class_slide, get_amana, get_amana_proposals) פועלים מיד — השתמש בהם בחופשיות כדי לדעת את המצב האמיתי לפני שאתה מציע משהו.
+- כלי קריאה (list_units, get_unit, list_students, list_tasks, class_progress, get_lesson_plan, list_code_requests, list_exams, get_exam, get_class_slide, get_amana, get_amana_proposals, skills_report) פועלים מיד — השתמש בהם בחופשיות כדי לדעת את המצב האמיתי לפני שאתה מציע משהו.
 - כלי שינוי (edit_unit_texts, edit_review, edit_discussion, reset_unit_edits, publish_unit, set_due_date, cancel_task, republish_task, mark_unit, mark_done_up_to, account_action, send_message, edit_exam, edit_exam_prep, edit_class_slide, amana_clause, amana_proposal, request_code_change) מבצעים מיד, בלי שום אישור — זה צ׳אט רגיל: היא כותבת, אתה עושה, ומספר במשפט-שניים מה בדיוק שונה (ציטוט קצר של הנוסח החדש כשזה טקסט). אל תשאל "האם לבצע?" ואל תציג אפשרויות לבחירה — רק אם הבקשה באמת דו-משמעית, שאל שאלה אחת קצרה. כל שינוי ניתן לביטול עם undo_change כשהיא מבקשת לבטל / להחזיר.
 - שינוי שם התצוגה של תלמיד/ה (account_action עם action=rename, userId ו-name — השם המלא בעברית): קודם list_students כדי למצוא את החשבון (חשבון בלי שם מופיע עם name ריק — לזהות לפי המייל). השם שהמורה קבעה גובר על השם של התלמיד/ה ומופיע בכל האתר.
 - איחוד חשבונות כפולים של תלמיד/ה (account_action עם action=merge): קודם list_students, ורק כשברור איזה חשבון נשאר (keepUserId) ואיזה מתמזג (userId). זו הפעולה היחידה שלא ניתנת לביטול — אמור/אמרי זאת, וספר/י בקצרה מה עבר (הכלי מחזיר סיכום).

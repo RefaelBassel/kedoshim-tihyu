@@ -72,10 +72,10 @@ async function ensureTables() {
   ready = true;
 }
 
-const hashAnswer = (a: string) => createHash("sha256").update(a).digest("hex").slice(0, 32);
+export const hashAnswer = (a: string) => createHash("sha256").update(a).digest("hex").slice(0, 32);
 
 // one question as the teacher sees it, with its answer folded into one text
-function answerText(q: QuestionBlock, answers: Map<string, string>): string {
+export function answerText(q: QuestionBlock, answers: Map<string, string>): string {
   if (q.fields?.length) {
     return q.fields
       .map((f) => {
