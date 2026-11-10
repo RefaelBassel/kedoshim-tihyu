@@ -22,7 +22,10 @@ export default async function InterimGradesPage() {
   return (
     <PageShell title="📊 ציון ביניים — פרק ט״ז" subtitle="הצעת ציון לכל תלמיד, לפי בדיקה מקלה של התוכן של כל התשובות — לעיני המורה בלבד">
       <InterimGradesView grades={grades} />
-      <p className="mt-6 text-center text-xs text-[color:var(--primary)]/50">
+      <p className="mt-6 flex justify-center gap-4 text-center text-xs text-[color:var(--primary)]/50">
+        <Link href="/dashboard/skills" className="hover:text-[color:var(--accent)]">
+          🧭 דוח מיומנויות לפי תלמיד
+        </Link>
         <Link href="/dashboard" className="hover:text-[color:var(--accent)]">
           → חזרה לדשבורד
         </Link>

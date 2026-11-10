@@ -120,6 +120,12 @@ export default async function DashboardPage() {
           📊 ציון ביניים — פרק ט״ז
         </Link>
         <Link
+          href="/dashboard/skills"
+          className="rounded-full border-2 border-[color:var(--primary)]/50 px-5 py-2 text-sm font-bold text-[color:var(--primary)] transition hover:bg-[color:var(--primary)]/10"
+        >
+          🧭 דוח מיומנויות לפי תלמיד
+        </Link>
+        <Link
           href="/dashboard/slide"
           className="rounded-full border-2 border-[color:var(--primary)]/50 px-5 py-2 text-sm font-bold text-[color:var(--primary)] transition hover:bg-[color:var(--primary)]/10"
         >
