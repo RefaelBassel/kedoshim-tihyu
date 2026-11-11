@@ -219,3 +219,10 @@ a projected board never contains teacher input; the control is a separate page.
 - The "🖨️ הדפסה" button (components/dashboard/print-worksheet-link.tsx) is on /dashboard/task/<id>, /tasks/<id> (teacher, not
   student mode), /dashboard/content (card) and /dashboard/content/<ref>, the lesson planner's unit popover, and the submission page.
   The pre-built PDF/Word files (`npm run build:print`) stay as they were.
+
+## Claude API calls (Opus 5.5) — read before writing one
+- Never force a tool: `tool_choice: { type: "tool" | "any" }` is rejected with a 400.
+  Use `tool_choice: { type: "auto", disable_parallel_tool_use: true }`, `strict: true`
+  on the tool, and tell the model in the system prompt to answer only through the tool.
+- No `minimum` / `maximum` / `minLength` in a strict schema.
+- Thinking counts against `max_tokens`: give at least 4000 even for a short answer.
